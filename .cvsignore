@@ -1,0 +1,8 @@
+ocamlc
+ocamlc.opt
+expunge
+ocaml
+ocamlopt
+ocamlopt.opt
+ocamlcomp.sh
+ocamlcompopt.sh

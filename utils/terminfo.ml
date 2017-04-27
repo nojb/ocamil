@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: terminfo.ml,v 1.5 1999/11/17 18:59:02 xleroy Exp $ *)
+(* $Id: terminfo.ml,v 1.1 2003/09/17 08:14:39 montela Exp $ *)
 
 (* Basic interface to the terminfo database *)
 
@@ -19,7 +19,8 @@ type status =
   | Bad_term
   | Good_term of int
 ;;
-external setup : out_channel -> status = "terminfo_setup";;
-external backup : int -> unit = "terminfo_backup";;
-external standout : bool -> unit = "terminfo_standout";;
-external resume : int -> unit = "terminfo_resume";;
+let setup oc = Bad_term
+let backup i = raise (Invalid_argument "Terminfo.backup");;
+let standout b = raise (Invalid_argument "Terminfo.standout");;
+let resume i = raise (Invalid_argument "Terminfo.resume");;
+

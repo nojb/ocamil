@@ -10,18 +10,21 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: translmod.mli,v 1.9 2000/06/12 14:22:37 garrigue Exp $ *)
+(* $Id: translmod.mli,v 1.5 2006/07/23 03:04:14 montela Exp $ *)
 
 (* Translation from typed abstract syntax to lambda terms,
    for the module language *)
 
 open Typedtree
 open Lambda
+open Typedlambda
 
-val transl_implementation: string -> structure * module_coercion -> lambda
-val transl_store_implementation:
-      string -> structure * module_coercion -> int * lambda
-val transl_toplevel_definition: structure -> lambda
+val transl_implementation: string -> structure * module_coercion -> int * typedlambda * Ident.t
+val transl_store_implementation: string -> structure * module_coercion -> int * typedlambda * Ident.t
+val transl_toplevel_definition: structure -> typedlambda
 val toplevel_name: Ident.t -> string
 
 val primitive_declarations: string list ref
+
+(* Ajout propag Camil *)
+(*val get_globals_types: unit -> typing_annotation*)

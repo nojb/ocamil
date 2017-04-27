@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: lambda.ml,v 1.38 2002/02/10 17:01:26 xleroy Exp $ *)
+(* $Id: lambda.ml,v 1.2 2005/01/21 20:01:29 montela Exp $ *)
 
 open Misc
 open Path
@@ -25,6 +25,9 @@ type primitive =
   (* Operations on heap blocks *)
   | Pmakeblock of int * mutable_flag
   | Pfield of int
+(* CAMIL addition : field of variant type, recording tag *)
+  | Pfldtag of int * int
+
   | Psetfield of int * bool
   | Pfloatfield of int
   | Psetfloatfield of int
@@ -81,6 +84,8 @@ type primitive =
   (* Operations on big arrays *)
   | Pbigarrayref of int * bigarray_kind * bigarray_layout
   | Pbigarrayset of int * bigarray_kind * bigarray_layout
+ (* CamIL primitives *)
+  | Pil of string 
 
 and comparison =
     Ceq | Cneq | Clt | Cgt | Cle | Cge

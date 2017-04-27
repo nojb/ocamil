@@ -12,7 +12,7 @@
 
 /* Based on public-domain code from Berkeley Yacc */
 
-/* $Id: defs.h,v 1.16 2001/07/12 12:54:22 doligez Exp $ */
+/* $Id: defs.h,v 1.1 2006/11/08 15:08:33 montela Exp $ */
 
 #include <assert.h>
 #include <ctype.h>
@@ -20,7 +20,6 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "../config/s.h"
 
 #if macintosh
 #include "../byterun/rotatecursor.h"

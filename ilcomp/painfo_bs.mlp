@@ -1,0 +1,63 @@
+(************************************************************************)
+(*                                                                      *)
+(*                                CamIL                                 *)
+(*                                                                      *)
+(* created by  Bruno Pagano, projet Cristal, INRIA Rocquencourt (2000)  *)
+(* modified by Emmanuel Chailloux & Raphael Montelatici, PPS (2003-2006)*)
+(*                                                                      *)
+(************************************************************************)
+
+open Config;;
+
+type assembly;;
+external painfo_runningAssembly:unit -> assembly
+    ="class System.Reflection.Assembly" "System.Reflection.Assembly" "GetExecutingAssembly" "void";;
+external painfo_findAssembly:string-> assembly
+    ="class System.Reflection.Assembly" "CamIL.PAInfo" "findAssembly" "string";;
+external painfo_isFound:assembly->int
+    = "int" "CamIL.PAInfo" "isFound" "class System.Reflection.Assembly";;
+external painfo_getPublicKey:assembly->string
+    = "string" "CamIL.PAInfo" "getPublicKey" "class System.Reflection.Assembly";;
+external painfo_getVersion:assembly->string
+    = "string" "CamIL.PAInfo" "getVersion" "class System.Reflection.Assembly";;
+external painfo_getCoreCamil:unit -> assembly
+    = "class System.Reflection.Assembly" "CamIL.PAInfo" "CoreCamILAssembly" "void"
+external painfo_assemblyPath:assembly -> string
+    = "string" "CamIL.PAInfo" "assemblyPath" "class System.Reflection.Assembly" 
+
+
+let command assemblyname =
+  let assbly=painfo_findAssembly assemblyname in
+  match (painfo_isFound assbly) with
+      0 -> raise Not_found
+  | _ -> 
+      let token= painfo_getPublicKey assbly in 
+      let version= painfo_getVersion assbly  in 
+	((token,version),Some assbly)
+	
+
+let read_assemblyinfo assemblyname =
+  try 
+    if !Clflags.verbose then (Printf.printf "Comm> CamIL_painfo %s\n" assemblyname;flush stdout);
+    command assemblyname 
+  with _ -> raise Not_found
+
+
+let read_assemblyinfo_of_core_camil()  =
+  try 
+    let assbly= painfo_getCoreCamil() in 
+      (* TODO : dépend de la variable d'environnement quand  même pour forcer ... *)
+    let token=painfo_getPublicKey assbly in
+    let version=painfo_getVersion assbly in
+      ((token,version),Some assbly)
+  with _ -> (failwith "Read_token_version_of_core_camil") (* raise Not_found;; *)
+
+let read_assemblyinfo_of_self () =
+  try 
+    let assbly=painfo_runningAssembly() in
+    let token=painfo_getPublicKey assbly in
+    let version= painfo_getVersion assbly in
+    ((token,version),Some assbly)
+  with _ -> (failwith "Read_token_version_of_self") (* raise Not_found;; *)
+
+

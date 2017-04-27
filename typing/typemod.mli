@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: typemod.mli,v 1.21 2002/04/18 07:27:46 garrigue Exp $ *)
+(* $Id: typemod.mli,v 1.5 2006/06/27 18:15:19 montela Exp $ *)
 
 (* Type-checking of the module language *)
 
@@ -52,3 +52,16 @@ type error =
 exception Error of Location.t * error
 
 val report_error: formatter -> error -> unit
+
+
+(* CAMILADD *)
+type camil_typedecl_tree = 
+    {ctd_name:string;
+     mutable ctd_decls:(string * Types.type_declaration * Env.t) list;
+     mutable ctd_children:camil_typedecl_tree list
+    }
+
+val camil_typedecls: camil_typedecl_tree
+val updated_toplevel_typedecls: unit -> camil_typedecl_tree
+val camil_clear_typedecls: unit -> unit
+(* /CAMILADD *)

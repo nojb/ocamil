@@ -10,14 +10,14 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: symtable.ml,v 1.31 2002/02/11 14:08:43 xleroy Exp $ *)
+(* $Id: symtable.ml,v 1.3 2004/05/21 12:44:51 montela Exp $ *)
 
 (* To assign numbers to globals and primitives *)
 
 open Misc
 open Asttypes
 open Lambda
-open Emitcode
+(*TEMPO open Emitcode *)
 
 (* Functions for batch linking *)
 
@@ -75,6 +75,7 @@ let c_prim_table = ref(empty_numtable : string numtable)
 let set_prim_table name =
   ignore(enter_numtable c_prim_table name)
 
+(*TEMPO
 let num_of_prim name =
   try
     find_numtable !c_prim_table name
@@ -89,9 +90,12 @@ let num_of_prim name =
       Dll.synchronize_primitive num symb;
       num
     end
+*)
 
+(*TEMPO
 let require_primitive name =
   if name.[0] <> '%' then ignore(num_of_prim name)
+*)
 
 let all_primitives () =
   let prim = Array.create !c_prim_table.num_cnt "" in
@@ -182,6 +186,7 @@ let patch_int buff pos n =
   String.unsafe_set buff (pos + 2) (Char.unsafe_chr (n asr 16));
   String.unsafe_set buff (pos + 3) (Char.unsafe_chr (n asr 24))
 
+(*
 let patch_object buff patchlist = 
   List.iter
     (function
@@ -194,6 +199,8 @@ let patch_object buff patchlist =
       | (Reloc_primitive name, pos) ->
           patch_int buff pos (num_of_prim name))
     patchlist
+*)
+
 
 (* Translate structured constants *)
 
@@ -233,16 +240,17 @@ let output_global_map oc =
 (* Update the in-core table of globals *)
 
 let update_global_table () =
-  let ng = !global_table.num_cnt in
+(*TEMPO  let ng = !global_table.num_cnt in
   if ng > Array.length(Meta.global_data()) then Meta.realloc_global_data ng;
   let glob = Meta.global_data() in
   List.iter
     (fun (slot, cst) -> glob.(slot) <- transl_const cst)
-    !literal_table;
+    !literal_table; *)
   literal_table := []
 
 (* Initialize the linker for toplevel use *)
 
+(*TEMPO
 let init_toplevel () =
   (* Read back the known global symbols and the known primitives
      from the executable file *)
@@ -266,15 +274,18 @@ let init_toplevel () =
   close_in ic;
   (* Initialize the Dll machinery for toplevel use *)
   Dll.init_toplevel dllpath
-
+*)
 (* Find the value of a global identifier *)
 
 let get_global_position id = slot_for_getglobal id
 
 let get_global_value id =
-  (Meta.global_data()).(slot_for_getglobal id)
+(*TEMPO  (Meta.global_data()).(slot_for_getglobal id) *)
+Obj.repr [] (* modif 21/05 *)
+
 let assign_global_value id v =
-  (Meta.global_data()).(slot_for_getglobal id) <- v
+(*TEMPO  (Meta.global_data()).(slot_for_getglobal id) <- v *)
+()
 
 (* Save and restore the current state *)
 

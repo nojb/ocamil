@@ -10,12 +10,12 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: asmgen.mli,v 1.7 2000/04/21 08:10:26 weis Exp $ *)
+(* $Id: asmgen.mli,v 1.1 2003/03/18 15:57:13 emmanuel Exp $ *)
 
 (* From lambda to assembly code *)
 
 val compile_implementation :
-    string -> Format.formatter -> int * Lambda.lambda -> unit
+    string -> Format.formatter -> int * Lambda.lambda * Ident.t -> unit
 val compile_phrase :
     Format.formatter -> Cmm.phrase -> unit
 

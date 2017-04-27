@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: closure.ml,v 1.41 2002/02/08 16:55:30 xleroy Exp $ *)
+(* $Id: closure.ml,v 1.27 2006/10/16 12:45:55 montela Exp $ *)
 
 (* Introduction of closures, uncurrying, recognition of direct calls *)
 
@@ -18,8 +18,13 @@ open Misc
 open Asttypes
 open Primitive
 open Lambda
+open Typedlambda
 open Switch
 open Clambda
+open Ctypedlambda
+open Types
+
+let typemap_ident (id,typ) = (id,get_accurate_typeinfo typ)
 
 (* Auxiliaries for compiling functions *)
 
@@ -32,14 +37,14 @@ let rec split_list n l =
 
 let rec build_closure_env env_param pos = function
     [] -> Tbl.empty
-  | id :: rem ->
-      Tbl.add id (Uprim(Pfield pos, [Uvar env_param])) 
+  | (id,typ) :: rem ->
+      Tbl.add id (build_uterm (TypUprim(Pfield pos, [build_uvarterm env_param])) typ)
               (build_closure_env env_param (pos+1) rem)
 
 (* Check if a variable occurs in a [clambda] term. *)
 
-let occurs_var var u =
-  let rec occurs = function
+let occurs_var_untyped var u =
+  let rec occurs u = match u with
       Uvar v -> v = var
     | Uconst cst -> false
     | Udirect_apply(lbl, args) -> List.exists occurs args
@@ -52,7 +57,7 @@ let occurs_var var u =
     | Uprim(p, args) -> List.exists occurs args
     | Uswitch(arg, s) ->
         occurs arg ||
-        occurs_array s.us_actions_consts || occurs_array s.us_actions_blocks
+        occurs_array_untyped s.us_actions_consts || occurs_array_untyped s.us_actions_blocks
     | Ustaticfail (_, args) -> List.exists occurs args
     | Ucatch(_, _, body, hdlr) -> occurs body || occurs hdlr
     | Utrywith(body, exn, hdlr) -> occurs body || occurs hdlr
@@ -63,6 +68,43 @@ let occurs_var var u =
     | Ufor(id, lo, hi, dir, body) -> occurs lo || occurs hi || occurs body
     | Uassign(id, u) -> id = var || occurs u
     | Usend(met, obj, args) -> 
+        occurs met || occurs obj || List.exists occurs args
+  and occurs_array_untyped a =
+    try
+      for i = 0 to Array.length a - 1 do
+        if occurs a.(i) then raise Exit
+      done;
+      false
+    with Exit ->
+      true
+  in occurs u
+
+
+let occurs_var var u =
+  let rec occurs u = match u.utlterm with
+      TypUvar v -> v = var
+    | TypUconst cst -> false
+    | TypUdirect_apply(lbl, args) -> List.exists occurs args
+    | TypUgeneric_apply(funct, args) -> occurs funct || List.exists occurs args
+    | TypUclosure(fundecls, clos) -> List.exists occurs clos
+    | TypUoffset(u, ofs) -> occurs u
+    | TypUlet(id, def, body) -> occurs def || occurs body
+    | TypUletrec(decls, body) ->
+        List.exists (fun (id, u) -> occurs u) decls || occurs body
+    | TypUprim(p, args) -> List.exists occurs args
+    | TypUswitch(arg, s) ->
+        occurs arg ||
+        occurs_array s.tus_actions_consts || occurs_array s.tus_actions_blocks
+    | TypUstaticfail (_, args) -> List.exists occurs args
+    | TypUcatch(_, _, body, hdlr) -> occurs body || occurs hdlr
+    | TypUtrywith(body, exn, hdlr) -> occurs body || occurs hdlr
+    | TypUifthenelse(cond, ifso, ifnot) ->
+        occurs cond || occurs ifso || occurs ifnot
+    | TypUsequence(u1, u2) -> occurs u1 || occurs u2
+    | TypUwhile(cond, body) -> occurs cond || occurs body
+    | TypUfor(id, lo, hi, dir, body) -> occurs lo || occurs hi || occurs body
+    | TypUassign((id,_), u) -> id = var || occurs u
+    | TypUsend(met, obj, args) -> 
         occurs met || occurs obj || List.exists occurs args
   and occurs_array a =
     try
@@ -84,6 +126,7 @@ let prim_size prim args =
   | Psetglobal id -> 1
   | Pmakeblock(tag, mut) -> 5 + List.length args
   | Pfield f -> 1
+  | Pfldtag _ -> 1
   | Psetfield(f, isptr) -> if isptr then 4 else 1
   | Pfloatfield f -> 1
   | Psetfloatfield f -> 1
@@ -108,50 +151,50 @@ let lambda_smaller lam threshold =
   let size = ref 0 in
   let rec lambda_size lam =
     if !size > threshold then raise Exit;
-    match lam with
-      Uvar v -> ()
-    | Uconst(Const_base(Const_int _ | Const_char _ | Const_float _) |
-             Const_pointer _) -> incr size
-    | Uconst _ ->
+    match lam.utlterm with
+      TypUvar v -> ()
+    | TypUconst(TypTConst_base(Const_int _ | Const_char _ | Const_float _) |
+             TypTConst_pointer _) -> incr size
+    | TypUconst _ ->
         raise Exit (* avoid duplication of structured constants *)
-    | Udirect_apply(fn, args) ->
+    | TypUdirect_apply(fn, args) ->
         size := !size + 4; lambda_list_size args
-    | Ugeneric_apply(fn, args) ->
+    | TypUgeneric_apply(fn, args) ->
         size := !size + 6; lambda_size fn; lambda_list_size args
-    | Uclosure(defs, vars) ->
+    | TypUclosure(defs, vars) ->
         raise Exit (* inlining would duplicate function definitions *)
-    | Uoffset(lam, ofs) ->
+    | TypUoffset(lam, ofs) ->
         incr size; lambda_size lam
-    | Ulet(id, lam, body) ->
+    | TypUlet(id, lam, body) ->
         lambda_size lam; lambda_size body
-    | Uletrec(bindings, body) ->
+    | TypUletrec(bindings, body) ->
         raise Exit (* usually too large *)
-    | Uprim(prim, args) ->
+    | TypUprim(prim, args) ->
         size := !size + prim_size prim args;
         lambda_list_size args
-    | Uswitch(lam, cases) ->
-        if Array.length cases.us_actions_consts > 1 then size := !size + 5 ;
-        if Array.length cases.us_actions_blocks > 1 then size := !size + 5 ;
+    | TypUswitch(lam, cases) ->
+        if Array.length cases.tus_actions_consts > 1 then size := !size + 5 ;
+        if Array.length cases.tus_actions_blocks > 1 then size := !size + 5 ;
         lambda_size lam;
-        lambda_array_size cases.us_actions_consts ;
-        lambda_array_size cases.us_actions_blocks
-    | Ustaticfail (_,args) -> lambda_list_size args
-    | Ucatch(_, _, body, handler) ->
+        lambda_array_size cases.tus_actions_consts ;
+        lambda_array_size cases.tus_actions_blocks
+    | TypUstaticfail (_,args) -> lambda_list_size args
+    | TypUcatch(_, _, body, handler) ->
         incr size; lambda_size body; lambda_size handler
-    | Utrywith(body, id, handler) ->
+    | TypUtrywith(body, id, handler) ->
         size := !size + 8; lambda_size body; lambda_size handler
-    | Uifthenelse(cond, ifso, ifnot) ->
+    | TypUifthenelse(cond, ifso, ifnot) ->
         size := !size + 2;
         lambda_size cond; lambda_size ifso; lambda_size ifnot
-    | Usequence(lam1, lam2) ->
+    | TypUsequence(lam1, lam2) ->
         lambda_size lam1; lambda_size lam2
-    | Uwhile(cond, body) ->
+    | TypUwhile(cond, body) ->
         size := !size + 2; lambda_size cond; lambda_size body
-    | Ufor(id, low, high, dir, body) ->
+    | TypUfor(id, low, high, dir, body) ->
         size := !size + 4; lambda_size low; lambda_size high; lambda_size body
-    | Uassign(id, lam) ->
+    | TypUassign(id, lam) ->
         incr size;  lambda_size lam
-    | Usend(met, obj, args) ->
+    | TypUsend(met, obj, args) ->
         size := !size + 8;
         lambda_size met; lambda_size obj; lambda_list_size args
   and lambda_list_size l = List.iter lambda_size l
@@ -161,32 +204,34 @@ let lambda_smaller lam threshold =
   with Exit ->
     false
 
-(* Check if a clambda term is ``pure'',
+(* Check if a clambda term is pure'',
    that is without side-effects *and* not containing function definitions *)
 
-let rec is_pure_clambda = function
-    Uvar v -> true
-  | Uconst cst -> true
-  | Uprim((Psetglobal _ | Psetfield _ | Psetfloatfield _ |
+let rec is_pure_clambda tu = match tu.utlterm with
+    TypUvar v -> true
+  | TypUconst cst -> true
+  | TypUprim((Psetglobal _ | Psetfield _ | Psetfloatfield _ |
            Pccall _ | Praise | Poffsetref _ | Pstringsetu | Pstringsets |
            Parraysetu _ | Parraysets _ | Pbigarrayset _), _) -> false
-  | Uprim(p, args) -> List.for_all is_pure_clambda args
+  | TypUprim(p, args) -> List.for_all is_pure_clambda args
   | _ -> false
 
 (* Simplify primitive operations on integers *)
 
-let make_const_int n = (Uconst(Const_base(Const_int n)), Value_integer n)
-let make_const_ptr n = (Uconst(Const_pointer n), Value_constptr n)
-let make_const_bool b = make_const_ptr(if b then 1 else 0)
+let make_const_int n = (build_uterm (TypUconst(TypTConst_base(Const_int n))) TIint, Value_integer n) (* !! IS OKAY only if Value_approx_int is right about integers ! *)
+let make_const_ptr n typ = (build_uterm (TypUconst(TypTConst_pointer n)) typ, Value_constptr n)
+let make_const_bool b = 
+  let n = (if b then 1 else 0) in
+    (build_uterm (TypUconst(TypTConst_pointer n)) TIbool , Value_constptr n)
 
-let simplif_prim_pure p (args, approxs) =
+let simplif_prim_pure p (args, approxs) typ =
   match approxs with
     [Value_integer x] ->
       begin match p with
         Pidentity -> make_const_int x
       | Pnegint -> make_const_int (-x)
       | Poffsetint y -> make_const_int (x + y)
-      | _ -> (Uprim(p, args), Value_unknown)
+      | _ -> (build_uprimterm (p, args) typ, Value_unknown)
       end
   | [Value_integer x; Value_integer y] ->
       begin match p with
@@ -210,28 +255,28 @@ let simplif_prim_pure p (args, approxs) =
             | Cle -> x <= y
             | Cge -> x >= y in
           make_const_bool result
-      | _ -> (Uprim(p, args), Value_unknown)
+      | _ -> (build_uprimterm(p,args) typ, Value_unknown)
       end
   | [Value_constptr x] ->
       begin match p with
-        Pidentity -> make_const_ptr x
+        Pidentity -> make_const_ptr x typ
       | Pnot -> make_const_bool(x = 0)
       | Pisint -> make_const_bool true
-      | _ -> (Uprim(p, args), Value_unknown)
+      | _ -> (build_uprimterm(p,args) typ, Value_unknown)
       end
   | [Value_constptr x; Value_constptr y] ->
       begin match p with
         Psequand -> make_const_bool(x <> 0 && y <> 0)
       | Psequor  -> make_const_bool(x <> 0 || y <> 0)
-      | _ -> (Uprim(p, args), Value_unknown)
+      | _ -> (build_uprimterm(p,args) typ, Value_unknown)
       end
   | _ ->
-      (Uprim(p, args), Value_unknown)
+      (build_uprimterm(p,args) typ, Value_unknown)
 
-let simplif_prim p (args, approxs as args_approxs) =
+let simplif_prim p (args, approxs as args_approxs) typ =
   if List.for_all is_pure_clambda args
-  then simplif_prim_pure p args_approxs
-  else (Uprim(p, args), Value_unknown)
+  then simplif_prim_pure p args_approxs typ
+  else (build_uprimterm(p,args) typ, Value_unknown)
 
 (* Substitute variables in a [ulambda] term (a body of an inlined function)
    and perform some more simplifications on integer primitives.
@@ -242,121 +287,122 @@ let simplif_prim p (args, approxs as args_approxs) =
    during inline expansion. *)
 
 let approx_ulam = function
-    Uconst(Const_base(Const_int n)) -> Value_integer n
-  | Uconst(Const_base(Const_char c)) -> Value_integer(Char.code c)
-  | Uconst(Const_pointer n) -> Value_constptr n
+    {utlterm=TypUconst(TypTConst_base(Const_int n))} -> Value_integer n
+(*  | {utlterm=TypUconst(TypTConst_base(Const_char c))} -> Value_integer(Char.code c)  *) (* NOT correct ! should add Value_char !!! *)
+  | {utlterm=TypUconst(TypTConst_pointer n)} -> Value_constptr n
   | _ -> Value_unknown
 
 let rec substitute sb ulam =
-  match ulam with
-    Uvar v ->
+  match ulam.utlterm with
+    TypUvar v ->
       begin try Tbl.find v sb with Not_found -> ulam end
-  | Uconst cst -> ulam
-  | Udirect_apply(lbl, args) ->
-      Udirect_apply(lbl, List.map (substitute sb) args)
-  | Ugeneric_apply(fn, args) ->
-      Ugeneric_apply(substitute sb fn, List.map (substitute sb) args)
-  | Uclosure(defs, env) ->
+  | TypUconst cst -> ulam
+  | TypUdirect_apply(lbl, args) ->
+      build_uterm (TypUdirect_apply(lbl, List.map (substitute sb) args)) ulam.utltype
+  | TypUgeneric_apply(fn, args) ->
+       build_uterm (TypUgeneric_apply(substitute sb fn, List.map (substitute sb) args)) ulam.utltype
+  | TypUclosure(defs, env) ->
       (* never present in an inlined function body; painful to get right *)
       assert false
-  | Uoffset(u, ofs) -> Uoffset(substitute sb u, ofs)
-  | Ulet(id, u1, u2) ->
+  | TypUoffset(u, ofs) ->  build_uterm (TypUoffset(substitute sb u, ofs)) ulam.utltype
+  | TypUlet((id,typ), u1, u2) ->
       let id' = Ident.rename id in
-      Ulet(id', substitute sb u1, substitute (Tbl.add id (Uvar id') sb) u2)
-  | Uletrec(bindings, body) ->
+      build_uletterm ((id',typ), substitute sb u1, substitute (Tbl.add id (build_uvarterm (id',typ)) sb) u2) ulam.utltype
+  | TypUletrec(bindings, body) ->
       (* never present in an inlined function body; painful to get right *)
       assert false
-  | Uprim(p, args) ->
+  | TypUprim(p, args) ->
       let sargs = List.map (substitute sb) args in
-      let (res, _) = simplif_prim p (sargs, List.map approx_ulam sargs) in
+      let (res, _) = simplif_prim p (sargs, List.map approx_ulam sargs) ulam.utltype in
       res
-  | Uswitch(arg, sw) ->
-      Uswitch(substitute sb arg,
+  | TypUswitch(arg, sw) ->
+      build_uswitchterm (substitute sb arg,
               { sw with
-                us_actions_consts =
-                  Array.map (substitute sb) sw.us_actions_consts;
-                us_actions_blocks =
-                  Array.map (substitute sb) sw.us_actions_blocks;
-               })
-  | Ustaticfail (nfail, args) ->
-      Ustaticfail (nfail, List.map (substitute sb) args)
-  | Ucatch(nfail, ids, u1, u2) ->
-      Ucatch(nfail, ids, substitute sb u1, substitute sb u2)
-  | Utrywith(u1, id, u2) ->
+                tus_actions_consts =
+                  Array.map (substitute sb) sw.tus_actions_consts;
+                tus_actions_blocks =
+                  Array.map (substitute sb) sw.tus_actions_blocks;
+               }) ulam.utltype
+  | TypUstaticfail (nfail, args) ->
+      build_uterm (TypUstaticfail (nfail, List.map (substitute sb) args)) ulam.utltype
+  | TypUcatch(nfail, ids, u1, u2) ->
+      build_ucatchterm (nfail, ids, substitute sb u1, substitute sb u2) ulam.utltype
+  | TypUtrywith(u1, (id,typ), u2) ->
       let id' = Ident.rename id in
-      Utrywith(substitute sb u1, id', substitute (Tbl.add id (Uvar id') sb) u2)
-  | Uifthenelse(u1, u2, u3) ->
+      build_uterm (TypUtrywith(substitute sb u1, (id',typ), substitute (Tbl.add id (build_uvarterm (id',typ)) sb) u2)) ulam.utltype
+  | TypUifthenelse(u1, u2, u3) ->
       begin match substitute sb u1 with
-        Uconst(Const_pointer n) ->
+        {utlterm=TypUconst(TypTConst_pointer n)} ->
           if n <> 0 then substitute sb u2 else substitute sb u3
       | su1 ->
-          Uifthenelse(su1, substitute sb u2, substitute sb u3)
+          build_uifthenelseterm (su1, substitute sb u2, substitute sb u3) ulam.utltype
       end
-  | Usequence(u1, u2) -> Usequence(substitute sb u1, substitute sb u2)
-  | Uwhile(u1, u2) -> Uwhile(substitute sb u1, substitute sb u2)
-  | Ufor(id, u1, u2, dir, u3) ->
+  | TypUsequence(u1, u2) -> build_usequenceterm((substitute sb u1, substitute sb u2)) ulam.utltype
+  | TypUwhile(u1, u2) ->  build_uterm (TypUwhile(substitute sb u1, substitute sb u2)) ulam.utltype
+  | TypUfor((id,typ), u1, u2, dir, u3) ->
       let id' = Ident.rename id in
-      Ufor(id', substitute sb u1, substitute sb u2, dir,
-           substitute (Tbl.add id (Uvar id') sb) u3)
-  | Uassign(id, u) ->
+       build_uterm (TypUfor((id',typ), substitute sb u1, substitute sb u2, dir,
+           substitute (Tbl.add id (build_uvarterm (id',typ)) sb) u3)) ulam.utltype
+  | TypUassign((id,typ), u) ->
       let id' =
         try
-          match Tbl.find id sb with Uvar i -> i | _ -> assert false
+          match Tbl.find id sb with {utlterm=TypUvar i} -> i | _ -> assert false
         with Not_found ->
           id in
-      Uassign(id', substitute sb u)
-  | Usend(u1, u2, ul) ->
-      Usend(substitute sb u1, substitute sb u2, List.map (substitute sb) ul)
+       build_uterm (TypUassign((id',typ), substitute sb u)) ulam.utltype
+  | TypUsend(u1, u2, ul) ->
+       build_uterm (TypUsend(substitute sb u1, substitute sb u2, List.map (substitute sb) ul)) ulam.utltype
 
 (* Perform an inline expansion *)
 
-let is_simple_argument = function
-    Uvar _ -> true
-  | Uconst(Const_base(Const_int _ | Const_char _ | Const_float _)) -> true
-  | Uconst(Const_pointer _) -> true
+let is_simple_argument ut = match ut.utlterm with
+    TypUvar _ -> true
+  | TypUconst(TypTConst_base(Const_int _ | Const_char _ | Const_float _)) -> true
+  | TypUconst(TypTConst_pointer _) -> true
   | _ -> false
 
-let no_effects = function
-    Uclosure _ -> true
-  | Uconst(Const_base(Const_string _)) -> true
-  | u -> is_simple_argument u
+let no_effects ut = match ut.utlterm with
+    TypUclosure _ -> true
+  | TypUconst(TypTConst_base(Const_string _)) -> true
+  | _ -> is_simple_argument ut
 
 let rec bind_params subst params args body =
   match (params, args) with
     ([], []) -> substitute subst body
-  | (p1 :: pl, a1 :: al) ->
+  | ((p1,typ) :: pl, a1 :: al) ->
       if is_simple_argument a1 then
         bind_params (Tbl.add p1 a1 subst) pl al body
       else begin
         let p1' = Ident.rename p1 in
-        let body' = bind_params (Tbl.add p1 (Uvar p1') subst) pl al body in
-        if occurs_var p1 body then Ulet(p1', a1, body')
+        let body' = bind_params (Tbl.add p1 (build_uvarterm (p1',typ)) subst) pl al body in
+        if occurs_var p1 body then build_uletterm ((p1',typ), a1, body') body'.utltype
         else if no_effects a1 then body'
-        else Usequence(a1, body')
+        else build_usequenceterm((a1, body')) body'.utltype
       end
   | (_, _) -> assert false
 
-(* Check if a lambda term is ``pure'',
+(* Check if a lambda term is pure'',
    that is without side-effects *and* not containing function definitions *)
 
-let rec is_pure = function
-    Lvar v -> true
-  | Lconst cst -> true
-  | Lprim((Psetglobal _ | Psetfield _ | Psetfloatfield _ |
+let rec is_pure ut = match ut.tlterm with
+    TypLvar v -> true
+  | TypLconst cst -> true
+  | TypLprim((Psetglobal _ | Psetfield _ | Psetfloatfield _ |
            Pccall _ | Praise | Poffsetref _ | Pstringsetu | Pstringsets |
            Parraysetu _ | Parraysets _), _) -> false
-  | Lprim(p, args) -> List.for_all is_pure args
+  | TypLprim(p, args) -> List.for_all is_pure args
   | _ -> false
 
 (* Generate a direct application *)
 
-let direct_apply fundesc funct ufunct uargs =
+let direct_apply fundesc funct ufunct uargs apptype (* extra argument for Ocamil type propagation *) =
   let app_args =
     if fundesc.fun_closed then uargs else uargs @ [ufunct] in
-  let app =
+  let app = (* TEMPO ? *) build_uterm (TypUdirect_apply(fundesc.fun_label, app_args)) apptype in
+(* DE-ACTIVATED !!! MOD RAF !!! 
     match fundesc.fun_inline with
-      None -> Udirect_apply(fundesc.fun_label, app_args)
-    | Some(params, body) -> bind_params Tbl.empty params app_args body in
+      None -> build_uterm (TypUdirect_apply(fundesc.fun_label, app_args)) apptype
+    | Some(params, body) -> bind_params Tbl.empty params app_args body in *)
   (* If ufunct can contain side-effects or function definitions,
      we must make sure that it is evaluated exactly once.
      If the function is not closed, we evaluate ufunct as part of the
@@ -364,7 +410,8 @@ let direct_apply fundesc funct ufunct uargs =
      If the function is closed, we force the evaluation of ufunct first. *)
   if not fundesc.fun_closed || is_pure funct
   then app
-  else Usequence(ufunct, app)
+  else build_usequenceterm((ufunct, app)) app.utltype
+
 
 (* Add [Value_integer] or [Value_constptr] info to the approximation
    of an application *)
@@ -380,14 +427,14 @@ let strengthen_approx appl approx =
 let check_constant_result lam ulam approx =
   match approx with
     Value_integer n when is_pure lam -> make_const_int n
-  | Value_constptr n when is_pure lam -> make_const_ptr n
+  | Value_constptr n when is_pure lam -> make_const_ptr n ulam.utltype
   | _ -> (ulam, approx)
 
 (* Evaluate an expression with known value for its side effects only,
    or discard it if it's pure *)
 
 let sequence_constant_expr lam ulam1 (ulam2, approx2 as res2) =
-  if is_pure lam then res2 else (Usequence(ulam1, ulam2), approx2)
+  if is_pure lam then res2 else (build_usequenceterm((ulam1, ulam2)) ulam2.utltype, approx2)
 
 (* Maintain the approximation of the global structure being defined *)
 
@@ -405,15 +452,15 @@ let excessive_function_nesting_depth = 5
    The closure environment [cenv] maps idents to [ulambda] terms.
    It is used to substitute environment accesses for free identifiers. *)
 
-let close_approx_var fenv cenv id =
+let close_approx_var fenv cenv (id,typ) =
   let approx = try Tbl.find id fenv with Not_found -> Value_unknown in
   match approx with
     Value_integer n ->
       make_const_int n
   | Value_constptr n ->
-      make_const_ptr n
+      make_const_ptr n typ
   | approx ->
-      let subst = try Tbl.find id cenv with Not_found -> Uvar id in
+      let subst = try Tbl.find id cenv with Not_found -> build_uvarterm (id,typ) in
       (subst, approx)
 
 let close_var fenv cenv id =
@@ -421,135 +468,156 @@ let close_var fenv cenv id =
 
 exception Found of int
 
-let rec close fenv cenv = function
-    Lvar id ->
-      close_approx_var fenv cenv id
-  | Lconst cst ->
+let rec close fenv cenv tl = match tl.tlterm with
+    TypLvar id ->
+      close_approx_var fenv cenv (id,get_accurate_typeinfo tl.tltype)
+  | TypLconst cst ->
+      let ucst = build_uterm (TypUconst (const_accurate_typeinfo cst)) (get_accurate_typeinfo tl.tltype) in
       begin match cst with
-        Const_base(Const_int n) -> (Uconst cst, Value_integer n)
-      | Const_base(Const_char c) -> (Uconst cst, Value_integer(Char.code c))
-      | Const_pointer n -> (Uconst cst, Value_constptr n)
-      | _ -> (Uconst cst, Value_unknown)
+        TConst_base(Const_int n) -> (ucst, Value_integer n)
+(*      | TConst_base(Const_char c) -> (ucst, Value_integer(Char.code c)) *) (* NOT Correct ! should add Value_char !! *)
+      | TConst_pointer n -> (ucst, Value_constptr n)
+      | _ -> (ucst, Value_unknown)
       end
-  | Lfunction(kind, params, body) as funct ->
-      close_one_function fenv cenv (Ident.create "fun") funct
-  | Lapply(funct, args) ->
+  | TypLfunction(kind, params, body)  ->
+      close_one_function fenv cenv ((Ident.create "fun"),tl.tltype) tl
+  | TypLapply(funct, args) ->
       let nargs = List.length args in
       begin match (close fenv cenv funct, close_list fenv cenv args) with
         ((ufunct, Value_closure(fundesc, approx_res)),
-         [Uprim(Pmakeblock(_, _), uargs)])
+         [{utlterm=TypUprim(Pmakeblock(_, _), uargs)}])
         when List.length uargs = - fundesc.fun_arity ->
-          let app = direct_apply fundesc funct ufunct uargs in
+          let app = direct_apply fundesc funct ufunct uargs (get_accurate_typeinfo tl.tltype) in
           (app, strengthen_approx app approx_res)
       | ((ufunct, Value_closure(fundesc, approx_res)), uargs)
         when nargs = fundesc.fun_arity ->
-          let app = direct_apply fundesc funct ufunct uargs in
+          let app = direct_apply fundesc funct ufunct uargs (get_accurate_typeinfo tl.tltype) in
           (app, strengthen_approx app approx_res)
       | ((ufunct, Value_closure(fundesc, approx_res)), uargs)
-        when fundesc.fun_arity > 0 && nargs > fundesc.fun_arity ->
+        when fundesc.fun_arity > 0 && nargs > fundesc.fun_arity -> (* sur-application *)
           let (first_args, rem_args) = split_list fundesc.fun_arity uargs in
-          (Ugeneric_apply(direct_apply fundesc funct ufunct first_args,
-                          rem_args),
+	  (* TODO !! pb: typer l'application interne *)
+
+	    (*
+	  let inner_type = match fundesc.fun_label.funtype with 
+	     TIarrow _ as typ -> Ctypedlambda.arrow_apply typ fundesc.fun_arity
+	    | _ -> print_string "Failed to retrieve inner type of overapp\n";TIgenclosure
+	    *)
+
+	  (* dans ce cas de figure on s'attend tjrs a une fermeture *)
+	  (* parfois le type inféré peut porter à confusion, comme dans le cas de Printf *)
+	  let inner_type = TIgenclosure 
+
+	  in
+          (build_uterm (TypUgeneric_apply(direct_apply fundesc funct ufunct first_args inner_type, 
+                          rem_args)) (get_accurate_typeinfo tl.tltype),
            Value_unknown)
       | ((ufunct, _), uargs) ->
-          (Ugeneric_apply(ufunct, uargs), Value_unknown)
+          (build_uterm (TypUgeneric_apply(ufunct, uargs)) (get_accurate_typeinfo tl.tltype), Value_unknown)
       end
-  | Lsend(met, obj, args) ->
+  | TypLsend(met, obj, args) ->
       let (umet, _) = close fenv cenv met in
       let (uobj, _) = close fenv cenv obj in
-      (Usend(umet, uobj, close_list fenv cenv args), Value_unknown)
-  | Llet(str, id, lam, body) ->
-      let (ulam, alam) = close_named fenv cenv id lam in
+      (build_uterm (TypUsend(umet, uobj, close_list fenv cenv args)) (get_accurate_typeinfo tl.tltype), Value_unknown)
+  | TypLlet(str, tid, lam, body) ->
+      let (ulam, alam) = close_named fenv cenv tid lam in
       begin match (str, alam) with
         (Variable, _) ->
           let (ubody, abody) = close fenv cenv body in
-          (Ulet(id, ulam, ubody), abody)
+          (build_uletterm (typemap_ident tid, ulam, ubody) (get_accurate_typeinfo tl.tltype), abody) 
       | (_, (Value_integer _ | Value_constptr _))
         when str = Alias || is_pure lam ->
-          close (Tbl.add id alam fenv) cenv body
+          close (Tbl.add (fst tid) alam fenv) cenv body
       | (_, _) ->
-          let (ubody, abody) = close (Tbl.add id alam fenv) cenv body in
-          (Ulet(id, ulam, ubody), abody)
+          let (ubody, abody) = close (Tbl.add (fst tid) alam fenv) cenv body in
+          (build_uletterm (typemap_ident tid, ulam, ubody) (get_accurate_typeinfo tl.tltype), abody)
       end
-  | Lletrec(defs, body) ->
+  | TypLletrec(defs, body) ->
       if List.for_all
-           (function (id, Lfunction(_, _, _)) -> true | _ -> false)
+           (function (id, {tlterm=TypLfunction(_, _, _)}) -> true | _ -> false)
            defs
       then begin
         (* Simple case: only function definitions *)
         let (clos, infos) = close_functions fenv cenv defs in
-        let clos_ident = Ident.create "clos" in
+        let clos_ident = Ident.create "clos",clos.utltype in 
         let fenv_body =
           List.fold_right
-            (fun (id, pos, approx) fenv -> Tbl.add id approx fenv)
+            (fun (tid, pos, approx) fenv -> Tbl.add (fst tid) approx fenv)
             infos fenv in
         let (ubody, approx) = close fenv_body cenv body in
-        (Ulet(clos_ident, clos,
+        (build_uletterm (clos_ident, clos,
               List.fold_right
                 (fun (id, pos, approx) body ->
-                    Ulet(id, Uoffset(Uvar clos_ident, pos), body))
-                infos ubody),
+                    build_uletterm (id, build_uterm (TypUoffset(build_uvarterm clos_ident, pos)) (snd id), body) body.utltype)
+                infos ubody) TIdontknow, (* rem : build_uletterm will replace TIdontknow *)
          approx)
       end else begin
         (* General case: recursive definition of values *)
         let rec clos_defs = function
           [] -> ([], fenv)
-        | (id, lam) :: rem ->
+        | (tid, lam) :: rem ->
             let (udefs, fenv_body) = clos_defs rem in
             let (ulam, approx) = close fenv cenv lam in
-            ((id, ulam) :: udefs, Tbl.add id approx fenv_body) in
+            ((typemap_ident tid, ulam) :: udefs, Tbl.add (fst tid) approx fenv_body) in
         let (udefs, fenv_body) = clos_defs defs in
         let (ubody, approx) = close fenv_body cenv body in
-        (Uletrec(udefs, ubody), approx)
+        (build_uterm (TypUletrec(udefs, ubody)) ubody.utltype, approx)
       end
-  | Lprim(Pgetglobal id, []) as lam ->
-      check_constant_result lam
-          (Uprim(Pgetglobal id, [])) (Compilenv.global_approx id)
-  | Lprim(Pmakeblock(tag, mut) as prim, lams) ->
+  | TypLprim(Pgetglobal id, []) ->
+      check_constant_result tl
+          (build_uprimterm (Pgetglobal id, []) (TIarray TIobject)) (Compilenv.global_approx id) 
+  | TypLprim(Pmakeblock(tag, mut) as prim, lams) ->
       let (ulams, approxs) = List.split (List.map (close fenv cenv) lams) in
-      (Uprim(prim, ulams),
+      (build_uprimterm (prim, ulams) (get_accurate_typeinfo tl.tltype), (* !!prim *)
        begin match mut with
            Immutable -> Value_tuple(Array.of_list approxs)
          | Mutable -> Value_unknown
        end)
-  | Lprim(Pfield n, [lam]) ->
+  | TypLprim(Pfield n, [lam]) ->
       let (ulam, approx) = close fenv cenv lam in
       let fieldapprox =
         match approx with
           Value_tuple a when n < Array.length a -> a.(n)
         | _ -> Value_unknown in
-      check_constant_result lam (Uprim(Pfield n, [ulam])) fieldapprox
-  | Lprim(Psetfield(n, _), [Lprim(Pgetglobal id, []); lam]) ->
+      check_constant_result lam (build_uterm (TypUprim(Pfield n, [ulam])) (get_accurate_typeinfo tl.tltype)) fieldapprox (* !!prim *)
+  | TypLprim(Pfldtag (n,tag), [lam]) ->
+      let (ulam, approx) = close fenv cenv lam in
+      let fieldapprox =
+        match approx with
+          Value_tuple a when n < Array.length a -> a.(n)
+        | _ -> Value_unknown in
+      check_constant_result lam (build_uterm (TypUprim(Pfldtag (n,tag), [ulam])) (get_accurate_typeinfo tl.tltype)) fieldapprox (* !!prim *)
+  | TypLprim(Psetfield(n, _), [{tlterm=TypLprim(Pgetglobal id, [])} as arg1; lam]) ->
       let (ulam, approx) = close fenv cenv lam in
       (!global_approx).(n) <- approx;
-      (Uprim(Psetfield(n, false), [Uprim(Pgetglobal id, []); ulam]),
+	(build_uprimterm (Psetfield(n, false), [build_uprimterm (Pgetglobal id, []) (TIarray TIobject); ulam]) (get_accurate_typeinfo tl.tltype),
        Value_unknown)
-  | Lprim(p, args) ->
-      simplif_prim p (close_list_approx fenv cenv args)
-  | Lswitch(arg, sw) as l ->
+  | TypLprim(p, args) ->
+      simplif_prim p (close_list_approx fenv cenv args) (get_accurate_typeinfo tl.tltype)
+  | TypLswitch(arg, sw) as l -> 
 (* NB: failaction might get copied, thus it should be some Lstaticraise *)
       let (uarg, _) = close fenv cenv arg in
       let const_index, const_actions =
-        close_switch fenv cenv sw.sw_consts sw.sw_numconsts sw.sw_failaction
+        close_switch fenv cenv sw.tsw_consts sw.tsw_numconsts sw.tsw_failaction
       and block_index, block_actions =
-        close_switch fenv cenv sw.sw_blocks sw.sw_numblocks sw.sw_failaction in
-      (Uswitch(uarg, 
-               {us_index_consts = const_index;
-                us_actions_consts = const_actions;
-                us_index_blocks = block_index;
-                us_actions_blocks = block_actions}),
+        close_switch fenv cenv sw.tsw_blocks sw.tsw_numblocks sw.tsw_failaction in
+      (build_uswitchterm (uarg, 
+               {tus_index_consts = const_index;
+                tus_actions_consts = const_actions;
+                tus_index_blocks = block_index;
+                tus_actions_blocks = block_actions}) (get_accurate_typeinfo tl.tltype),
        Value_unknown)
-  | Lstaticraise (i, args) ->
-      (Ustaticfail (i, close_list fenv cenv args), Value_unknown)
-  | Lstaticcatch(body, (i, vars), handler) ->
+  | TypLstaticraise (i, args) ->
+      (build_uterm (TypUstaticfail (i, close_list fenv cenv args)) (get_accurate_typeinfo tl.tltype), Value_unknown)
+  | TypLstaticcatch(body, (i, vars), handler) ->
       let (ubody, _) = close fenv cenv body in
       let (uhandler, _) = close fenv cenv handler in
-      (Ucatch(i, vars, ubody, uhandler), Value_unknown)
-  | Ltrywith(body, id, handler) ->
+      (build_ucatchterm (i, (List.map typemap_ident vars), ubody, uhandler) (get_accurate_typeinfo tl.tltype), Value_unknown)
+  | TypLtrywith(body, id, handler) ->
       let (ubody, _) = close fenv cenv body in
       let (uhandler, _) = close fenv cenv handler in
-      (Utrywith(ubody, id, uhandler), Value_unknown)
-  | Lifthenelse(arg, ifso, ifnot) ->
+      (build_uterm (TypUtrywith(ubody, typemap_ident id, uhandler)) (get_accurate_typeinfo tl.tltype), Value_unknown)
+  | TypLifthenelse(arg, ifso, ifnot) ->
       begin match close fenv cenv arg with
         (uarg, Value_constptr n) ->
           sequence_constant_expr arg uarg
@@ -557,25 +625,26 @@ let rec close fenv cenv = function
       | (uarg, _ ) ->    
           let (uifso, _) = close fenv cenv ifso in
           let (uifnot, _) = close fenv cenv ifnot in
-          (Uifthenelse(uarg, uifso, uifnot), Value_unknown)
+          (build_uifthenelseterm (uarg, uifso, uifnot) (get_accurate_typeinfo tl.tltype), Value_unknown)
       end
-  | Lsequence(lam1, lam2) ->
+  | TypLsequence(lam1, lam2) ->
       let (ulam1, _) = close fenv cenv lam1 in
       let (ulam2, approx) = close fenv cenv lam2 in
-      (Usequence(ulam1, ulam2), approx)
-  | Lwhile(cond, body) ->
+      (build_usequenceterm((ulam1, ulam2)) (get_accurate_typeinfo tl.tltype), approx)
+  | TypLwhile(cond, body) ->
       let (ucond, _) = close fenv cenv cond in
       let (ubody, _) = close fenv cenv body in
-      (Uwhile(ucond, ubody), Value_unknown)
-  | Lfor(id, lo, hi, dir, body) ->
+      (build_uterm (TypUwhile(ucond, ubody)) (get_accurate_typeinfo tl.tltype), Value_unknown)
+  | TypLfor(id, lo, hi, dir, body) ->
       let (ulo, _) = close fenv cenv lo in
       let (uhi, _) = close fenv cenv hi in
       let (ubody, _) = close fenv cenv body in
-      (Ufor(id, ulo, uhi, dir, ubody), Value_unknown)
-  | Lassign(id, lam) ->
+      (build_uterm (TypUfor(typemap_ident id, ulo, uhi, dir, ubody)) (get_accurate_typeinfo tl.tltype), Value_unknown)
+  | TypLassign(id, lam) ->
       let (ulam, _) = close fenv cenv lam in
-      (Uassign(id, ulam), Value_unknown)
-  | Levent _ | Lifused _ -> assert false
+      (build_uterm (TypUassign(typemap_ident id, ulam)) (get_accurate_typeinfo tl.tltype), Value_unknown)
+  | TypLevent _ | TypLifused _ -> assert false 
+
 
 and close_list fenv cenv = function
     [] -> []
@@ -590,11 +659,11 @@ and close_list_approx fenv cenv = function
       let (ulams, approxs) = close_list_approx fenv cenv rem in
       (ulam :: ulams, approx :: approxs)
 
-and close_named fenv cenv id = function
-    Lfunction(kind, params, body) as funct ->
-      close_one_function fenv cenv id funct
-  | lam ->
-      close fenv cenv lam
+and close_named fenv cenv id tl = match tl.tlterm with
+    TypLfunction(kind, params, body) ->
+      close_one_function fenv cenv id tl
+  | _ ->
+      close fenv cenv tl
 
 (* Build a shared closure for a set of mutually recursive functions *)
 
@@ -604,37 +673,44 @@ and close_functions fenv cenv fun_defs =
   let initially_closed =
     !function_nesting_depth < excessive_function_nesting_depth in
   (* Determine the free variables of the functions *)
-  let fv =
-    IdentSet.elements (free_variables (Lletrec(fun_defs, lambda_unit))) in
+  let fv_with_types =
+    List.map typemap_ident (IdentSet.elements (free_variables (build_term (TypLletrec(fun_defs, lambda_unit)) None (* aucune importance ici*) ))) in
+  let fv = List.map fst fv_with_types in
   (* Build the function descriptors for the functions.
      Initially all functions are assumed not to need their environment
      parameter. *)
   let uncurried_defs =
     List.map
       (function
-          (id, (Lfunction(kind, params, body) as def)) ->
+          ((id,typ), ({tlterm=TypLfunction(kind, params, body)} as def)) ->
+	    let typ2 = get_accurate_typeinfo typ in
             let label =
-              Compilenv.current_unit_name() ^ "__" ^ Ident.unique_name id in
+	      let uname = 
+		(* pour le toplevel, utilisation du caractere special '^$' *)
+		(* pour des identificateurs voués à être uniques *)
+		let tempname = Ident.unique_name id in
+		if tempname.[0] != '$' then tempname else Ident.name id in
+              Compilenv.current_unit_name() ^ "__" ^ uname in
             let arity = List.length params in
             let fundesc =
-              {fun_label = label;
+              {fun_label =  { opt=label; ilinfo=None;  funtype= typ2  }; 
                fun_arity = (if kind = Tupled then -arity else arity);
                fun_closed = initially_closed;
-               fun_inline = None } in
-            (id, params, body, fundesc)
+               (*fun_inline = None TEMPO!!RAF *) } in
+              ((id,typ), List.map typemap_ident params, body, fundesc)
         | (_, _) -> fatal_error "Closure.close_functions")
       fun_defs in
   (* Build an approximate fenv for compiling the functions *)
   let fenv_rec =
     List.fold_right
-      (fun (id, params, body, fundesc) fenv ->
+      (fun ((id,_), params, body, fundesc) fenv ->
         Tbl.add id (Value_closure(fundesc, Value_unknown)) fenv)
       uncurried_defs fenv in
   (* Determine the offsets of each function's closure in the shared block *)
   let env_pos = ref (-1) in
   let clos_offsets =
     List.map
-      (fun (id, params, body, fundesc) ->
+      (fun ((id,_), params, body, fundesc) ->
         let pos = !env_pos + 1 in
         env_pos := !env_pos + 1 + (if fundesc.fun_arity <> 1 then 3 else 2);
         pos)
@@ -644,20 +720,26 @@ and close_functions fenv cenv fun_defs =
      does not use its environment parameter is invalidated. *)
   let useless_env = ref initially_closed in
   (* Translate each function definition *)
-  let clos_fundef (id, params, body, fundesc) env_pos =
-    let env_param = Ident.create "env" in
+  let clos_fundef ((id,typ), params, body, fundesc) env_pos =
+    let typ2 = get_accurate_typeinfo typ in
+    let env_param = Ident.create "env",TIgenclosure in (* preciser fermeture ? *)
     let cenv_fv =
-      build_closure_env env_param (fv_pos - env_pos) fv in
+      build_closure_env env_param (fv_pos - env_pos) fv_with_types in
     let cenv_body =
       List.fold_right2
-        (fun (id, params, arity, body) pos env ->
-          Tbl.add id (Uoffset(Uvar env_param, pos - env_pos)) env)
+        (fun ((id,ftyp), params, arity, body) pos env ->
+	   let ftyp2 = get_accurate_typeinfo ftyp in
+          Tbl.add id (build_uterm (TypUoffset(build_uvarterm env_param, pos - env_pos)) ftyp2) env)
         uncurried_defs clos_offsets cenv_fv in
-    let (ubody, approx) = close fenv_rec cenv_body body in
-    if !useless_env && occurs_var env_param ubody then useless_env := false;
+    let body' = if (get_accurate_typeinfo body.tltype) <> TIdontknow then body 
+    else {body with tltype = arrow_apply_camltypes typ fundesc.fun_arity} in
+      (* ^^ permet de retrouver le type du corps à partir du type de la fonction ^^ *)
+      (* par exemple le corps de "fun () -> assert false" a un type propagé inconnu jusqu'à présent *)
+    let (ubody, approx) = close fenv_rec cenv_body body' in
+    if !useless_env && occurs_var (fst env_param) ubody then useless_env := false;
     let fun_params = if !useless_env then params else params @ [env_param] in
     ((fundesc.fun_label, fundesc.fun_arity, fun_params, ubody),
-     (id, env_pos, Value_closure(fundesc, approx))) in
+     ((id,typ2), env_pos, Value_closure(fundesc, approx))) in
   (* Translate all function definitions. *)
   let clos_info_list =
     if initially_closed then begin
@@ -680,17 +762,19 @@ and close_functions fenv cenv fun_defs =
   (* Return the Uclosure node and the list of all identifiers defined,
      with offsets and approximations. *)
   let (clos, infos) = List.split clos_info_list in
-  (Uclosure(clos, List.map (close_var fenv cenv) fv), infos)
+
+  (build_uterm (TypUclosure(clos, List.map (close_var fenv cenv) fv_with_types)) (if (List.length clos) >1 then TIsharedclosure else TIgenclosure), infos) 
 
 (* Same, for one non-recursive function *)
 
 and close_one_function fenv cenv id funct =
   match close_functions fenv cenv [id, funct] with
-      ((Uclosure([_, _, params, body], _) as clos),
+      (({utlterm=TypUclosure([_, _, params, body], _)} as clos),
        [_, _, (Value_closure(fundesc, _) as approx)]) ->
         (* See if the function can be inlined *)
-        if lambda_smaller body (!Clflags.inline_threshold + List.length params)
-        then fundesc.fun_inline <- Some(params, body);
+(* !! MOD RAPH TEMPO : interdire l'inlining *)
+(*        if lambda_smaller body (!Clflags.inline_threshold + List.length params)
+        then fundesc.fun_inline <- Some(params, body); *)
         (clos, approx)
     | _ -> fatal_error "Closure.close_one_function"
 
@@ -732,3 +816,4 @@ let intro size lam =
   let (ulam, approx) = close Tbl.empty Tbl.empty lam in
   global_approx := [||];
   ulam
+

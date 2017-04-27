@@ -10,10 +10,10 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: simplif.mli,v 1.3 1999/11/17 18:57:01 xleroy Exp $ *)
+(* $Id: simplif.mli,v 1.1 2004/08/07 09:10:01 montela Exp $ *)
 
 (* Elimination of useless Llet(Alias) bindings *)
 
-open Lambda
+open Typedlambda
 
-val simplify_lambda: lambda -> lambda
+val simplify_lambda: typedlambda -> typedlambda

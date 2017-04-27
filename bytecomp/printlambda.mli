@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: printlambda.mli,v 1.5 2000/03/06 22:11:10 weis Exp $ *)
+(* $Id: printlambda.mli,v 1.1 2003/03/18 15:57:21 emmanuel Exp $ *)
 
 open Lambda
 
@@ -18,3 +18,5 @@ open Format
 
 val structured_constant: formatter -> structured_constant -> unit
 val lambda: formatter -> lambda -> unit
+val primitive: formatter -> primitive -> unit
+

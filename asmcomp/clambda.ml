@@ -10,15 +10,98 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: clambda.ml,v 1.15 2001/02/19 20:15:36 maranget Exp $ *)
+(* $Id: clambda.ml,v 1.24 2006/02/01 14:44:55 montela Exp $ *)
 
 (* A variant of the "lambda" code with direct / indirect calls explicit
    and closures explicit too *)
 
 open Asttypes
 open Lambda
+open Typedlambda
 
-type function_label = string
+
+type namedtype = {nt_ext:bool;nt_path:string list}
+
+type typeinfo =
+  | TIint | TIchar | TIint32 | TIint64 | TInint |  TIbool 
+  | TIunit  | TIvoid
+  | TIfloat | TIstring
+  | TIgenclosure | TIsharedclosure 
+  | TIobject | TIpureIL of Il.typeref
+  | TIdontknow | TInotimplemented of string
+  | TIarrow of typeinfo list * typeinfo (* args -> res *)
+  | TIarray of typeinfo
+
+  | TIblock
+
+  | TIexception (*of string * typeinfo list*)
+  | TIlist of typeinfo
+  | TIoption of typeinfo
+  | TIrecord of namedtype
+  | TIvariant of namedtype
+  | TItuple of typeinfo list
+  | TIlazy of typeinfo 
+
+
+(*  | TIboxed
+  | TIclosure of Il.typeref *)
+(* objets, variants polymorphes ... *)
+(* array,list,format,option,lazy_t *)
+(* magic a eliminer ou a mettre dans accurate !! *)
+
+open Il
+let str_class x = x.trnsp ^ "." ^ x.trnme
+
+let print_namedtype_path apa =
+  (if apa.nt_ext then " (ext)" else "")^(List.fold_left (fun s md -> if s="" then md else md^"."^s) "" apa.nt_path)
+
+let rec typeinfo_to_string = function
+    TIint ->  "int"
+  | TIchar ->  "char"
+  | TIint32 ->  "int32"
+  | TIint64 ->  "int64"
+  | TInint ->  "nint"
+  | TIfloat ->  "float"
+  | TIbool ->  "bool"
+  | TIunit ->  "unit"
+  | TIstring ->  "string"
+  | TIvoid ->  "void"
+  | TIgenclosure -> "genclos"
+  | TIsharedclosure -> "mclos"
+  | TIobject ->  "<obj>"
+(*  | TIclosure cid -> Printf.sprintf "<C!%s>" (str_class cid) *)
+  | TIarrow (arg,res) -> Printf.sprintf  "(%s->%s)" (prlist "->" arg) (typeinfo_to_string res)
+  | TIarray ti ->  Printf.sprintf "%s[]" (typeinfo_to_string ti)
+  | TIpureIL cid -> Printf.sprintf "<IL:%s>" (str_class cid)
+  | TInotimplemented x -> failwith ("to_il Not Impl "^x)
+  | TIdontknow ->  "<?>"
+
+  | TIblock -> "block"
+
+  | TIexception ->  "exception"
+  | TIlazy ti ->  Printf.sprintf "%s lazy_t" (typeinfo_to_string ti)
+  | TIlist ti ->  Printf.sprintf  "%s list" (typeinfo_to_string  ti)
+  | TIoption ti ->  Printf.sprintf  "%s option" (typeinfo_to_string ti)
+  | TIrecord id -> print_namedtype_path id
+  | TIvariant id -> print_namedtype_path id
+  | TItuple tilist ->  Printf.sprintf  "(%s)" (prlist "*" tilist)
+
+and prlist sep = function
+    [t] ->  Printf.sprintf "%s" (typeinfo_to_string t)
+  | t::q -> Printf.sprintf "%s%s%s" (typeinfo_to_string t) sep (prlist sep q)
+  | [] -> failwith "Printulambda.prlist"
+
+
+(* COM+ : function_labels include more information about 
+          the nature of imported/exported direct call site *) 
+type complus = 
+  { ilns: Il.nsid ;          (* COM+ namespace *)
+    ilname: Il.id ;              (* COM+ name *)
+    ilrt: Il.elementType ;             (* COM+ return type *)
+    ilsig : Il.signature ;       (* COM+ signature *)
+  }
+    
+type function_label = { opt: string; mutable funtype:typeinfo; mutable ilinfo: complus option } 
 
 type ulambda =
     Uvar of Ident.t

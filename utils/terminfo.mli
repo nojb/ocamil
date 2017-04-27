@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: terminfo.mli,v 1.6 1999/11/17 18:59:03 xleroy Exp $ *)
+(* $Id: terminfo.mli,v 1.1 2003/09/17 08:14:40 montela Exp $ *)
 
 (* Basic interface to the terminfo database *)
 
@@ -19,7 +19,7 @@ type status =
   | Bad_term
   | Good_term of int  (* number of lines of the terminal *)
 ;;
-external setup : out_channel -> status = "terminfo_setup";;
-external backup : int -> unit = "terminfo_backup";;
-external standout : bool -> unit = "terminfo_standout";;
-external resume : int -> unit = "terminfo_resume";;
+val setup : out_channel -> status
+val backup : int -> unit
+val standout : bool -> unit
+val resume : int -> unit

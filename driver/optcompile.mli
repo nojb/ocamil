@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: optcompile.mli,v 1.7 2000/03/07 05:02:32 garrigue Exp $ *)
+(* $Id: optcompile.mli,v 1.1 2003/03/18 15:57:24 emmanuel Exp $ *)
 
 (* Compile a .ml or .mli file *)
 

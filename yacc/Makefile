@@ -10,7 +10,7 @@
 #                                                                       #
 #########################################################################
 
-# $Id: Makefile,v 1.8 2000/08/10 09:58:08 xleroy Exp $
+# $Id: Makefile,v 1.3 2006/10/17 12:46:49 montela Exp $
 
 # Makefile for the parser generator.
 
@@ -22,13 +22,16 @@ CFLAGS=-O -DNDEBUG $(BYTECCCOMPOPTS)
 OBJS= closure.o error.o lalr.o lr0.o main.o mkpar.o output.o reader.o \
   skeleton.o symtab.o verbose.o warshall.o
 
-all: ocamlyacc$(EXE)
+all: ocamilyacc$(EXE)
 
-ocamlyacc$(EXE): $(OBJS)
-	$(CC) $(CFLAGS) $(CCLINKFLAGS) -o ocamlyacc $(OBJS)
+ocamilyacc$(EXE): $(OBJS)
+	$(CC) $(CFLAGS) $(CCLINKFLAGS) -o ocamilyacc$(EXE) $(OBJS)
+
+install:
+	cp ocamilyacc$(EXE) $(CAMILBINDIR)
 
 clean:
-	rm -f *.o ocamlyacc$(EXE) *~
+	rm -f *.o ocamilyacc$(EXE) *~
 
 depend:
 

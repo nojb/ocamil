@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: symtable.mli,v 1.11 2000/03/06 22:11:11 weis Exp $ *)
+(* $Id: symtable.mli,v 1.1 2003/09/29 20:55:11 montela Exp $ *)
 
 (* Assign locations and numbers to globals and primitives *)
 
@@ -19,8 +19,10 @@ open Emitcode
 (* Functions for batch linking *)
 
 val init: unit -> unit
+(*TEMPO
 val patch_object: string -> (reloc_info * int) list -> unit
 val require_primitive: string -> unit
+*)
 val initial_global_table: unit -> Obj.t array
 val output_global_map: out_channel -> unit
 val output_primitive_names: out_channel -> unit
@@ -28,7 +30,7 @@ val output_primitive_table: out_channel -> unit
 
 (* Functions for the toplevel *)
 
-val init_toplevel: unit -> unit
+(*TEMPO val init_toplevel: unit -> unit *)
 val update_global_table: unit -> unit
 val get_global_value: Ident.t -> Obj.t
 val assign_global_value: Ident.t -> Obj.t -> unit

@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: genprintval.mli,v 1.10 2002/04/18 07:27:44 garrigue Exp $ *)
+(* $Id: genprintval.mli,v 1.2 2006/06/28 12:40:00 montela Exp $ *)
 
 (* Printing of values *)
 
@@ -25,6 +25,7 @@ module type OBJ =
     val tag : t -> int
     val size : t -> int
     val field : t -> int -> t
+    val record_field : t -> string -> t
   end
 
 module type EVALPATH =

@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: asmpackager.ml,v 1.4 2002/07/22 08:06:28 xleroy Exp $ *)
+(* $Id: asmpackager.ml,v 1.1 2003/03/18 15:57:14 emmanuel Exp $ *)
 
 (* "Package" a set of .cmx/.o files into one .cmx/.o file having the
    original compilation units as sub-modules. *)
@@ -48,7 +48,7 @@ let check_units cmxfiles units unit_names =
     [] -> ()
   | (cmxfile, infos) :: tl ->
       List.iter
-        (fun (unit, _) ->
+        (fun (unit, _, _ (*MOD*)) ->
           if List.mem unit forbidden
           then raise(Error(Forward_reference(cmxfile, unit))))
         infos.ui_imports_cmx;
@@ -123,7 +123,7 @@ let rename_approx mapping approx =
   | Uconst cst ->
       Uconst cst
   | Udirect_apply(lbl, args) ->
-      Udirect_apply(ren_label lbl, List.map ren_ulambda args)
+      Udirect_apply({opt=ren_label lbl.opt; il = lbl.il (**None**)} (*{opt=lbl; il=None}*) (*MOD*), List.map ren_ulambda args)
   | Ugeneric_apply(fn, args) ->
       Ugeneric_apply(ren_ulambda fn, List.map ren_ulambda args)
   | Uclosure(fns, env) ->
@@ -169,7 +169,8 @@ let rename_approx mapping approx =
       Value_closure(fd, res) ->
         let fd' =
           {fd with
-           fun_label = ren_label fd.fun_label;
+           fun_label = {opt = ren_label fd.fun_label.opt; il = fd.fun_label.il}
+              (*MOD*);
            fun_inline =
              match fd.fun_inline with
                None -> None
@@ -186,6 +187,8 @@ let rename_approx mapping approx =
 let build_package_cmx units unit_names target symbols_to_rename cmxfile =
   let filter lst =
     List.filter (fun (name, crc) -> not (List.mem name unit_names)) lst in
+  let filter_imp lst =
+    List.filter (fun (name, _, crc) -> not (List.mem name unit_names)) lst in
   let union lst =
     List.fold_left
       (List.fold_left
@@ -203,7 +206,7 @@ let build_package_cmx units unit_names target symbols_to_rename cmxfile =
       ui_defines = defines;
       ui_imports_cmi = (target, Env.crc_of_unit target) ::
                        filter(Asmlink.extract_crc_interfaces());
-      ui_imports_cmx = filter(Asmlink.extract_crc_implementations());
+      ui_imports_cmx =  filter_imp(Asmlink.extract_crc_implementations());
       ui_approx =
         Value_tuple
           (Array.map
@@ -211,7 +214,8 @@ let build_package_cmx units unit_names target symbols_to_rename cmxfile =
             (Array.of_list units));
       ui_curry_fun = union(List.map (fun info -> info.ui_curry_fun) units);
       ui_apply_fun = union(List.map (fun info -> info.ui_apply_fun) units);
-      ui_force_link = List.exists (fun info -> info.ui_force_link) units
+      ui_force_link = List.exists (fun info -> info.ui_force_link) units;
+      ui_class = ["Top";"un"]
     } in
   Compilenv.write_unit_info pkg_infos cmxfile
 

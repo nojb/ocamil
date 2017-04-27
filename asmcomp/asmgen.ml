@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: asmgen.ml,v 1.19 2000/04/21 08:10:25 weis Exp $ *)
+(* $Id: asmgen.ml,v 1.2 2004/04/30 15:25:36 montela Exp $ *)
 
 (* From lambda to assembly code *)
 
@@ -34,7 +34,13 @@ let pass_dump_if ppf flag message phrase =
   dump_if ppf flag message phrase; phrase
 
 let pass_dump_linear_if ppf flag message phrase =
-  if !flag then fprintf ppf "*** %s@.%a@." message Printlinear.fundecl phrase;
+  if !flag then fprintf ppf "*** %s@.%a@." message Printlinear.fundecl
+      phrase;
+(*MOD   if !flag then begin
+    print_string "*** "; print_string message; print_newline();
+    Printlinear.fundecl phrase; print_newline()
+  end;
+*)
   phrase
 
 let rec regalloc ppf round fd =
@@ -49,13 +55,13 @@ let rec regalloc ppf round fd =
   dump_if ppf dump_regalloc "After register allocation" fd;
   let (newfd, redo_regalloc) = Reload.fundecl fd in
   dump_if ppf dump_reload "After insertion of reloading code" newfd;
-  if redo_regalloc then begin
-    Reg.reinit(); Liveness.fundecl ppf newfd; regalloc ppf (round + 1) newfd
-  end else newfd
+  if redo_regalloc 
+  then begin Reg.reinit(); Liveness.fundecl ppf newfd; regalloc ppf (round+1) newfd end
+  else newfd
 
 let (++) x f = f x
 
-let compile_fundecl (ppf : formatter) fd_cmm =
+let compile_fundecl (ppf : formatter ) fd_cmm =
   Reg.reset();
   fd_cmm
   ++ Selection.fundecl
@@ -80,16 +86,18 @@ let compile_fundecl (ppf : formatter) fd_cmm =
 let compile_phrase ppf p =
   if !dump_cmm then fprintf ppf "%a@." Printcmm.phrase p;
   match p with
-  | Cfunction fd -> compile_fundecl ppf fd
+    Cfunction fd -> compile_fundecl ppf fd
   | Cdata dl -> Emit.data dl
 
-let compile_implementation prefixname ppf (size, lam) =
+
+let compile_implementation prefixname ppf (size,lam,modid) =
   let asmfile =
     if !keep_asm_file
     then prefixname ^ ext_asm
     else Filename.temp_file "camlasm" ext_asm in
   let oc = open_out asmfile in
-  begin try
+  begin 
+    try
     Emitaux.output_channel := oc;
     Emit.begin_assembly();
     Closure.intro size lam
@@ -107,6 +115,7 @@ let compile_implementation prefixname ppf (size, lam) =
   if !keep_asm_file then () else remove_file asmfile
 
 (* Error report *)
+
 
 let report_error ppf = function
   | Assembler_error file ->

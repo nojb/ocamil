@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: clflags.ml,v 1.44 2002/06/11 14:15:12 xleroy Exp $ *)
+(* $Id: clflags.ml,v 1.40 2007/03/25 11:24:59 montela Exp $ *)
 
 (* Command-line parameters *)
 
@@ -23,7 +23,7 @@ and output_name = ref (None : string option) (* -o *)
 and include_dirs = ref ([] : string list)(* -I *)
 and no_std_include = ref false          (* -nostdlib *)
 and print_types = ref false             (* -i *)
-and make_archive = ref false            (* -a *)
+and make_archive = ref false            (* -a NOT ANYMORE *)
 and debug = ref false                   (* -g *)
 and fast = ref false                    (* -unsafe *)
 and link_everything = ref false         (* -linkall *)
@@ -83,3 +83,41 @@ let std_include_flag prefix =
 let std_include_dir () =
   if !no_std_include then [] else [Config.standard_library]
 ;;
+
+(***)
+let dump_trawlambda = ref false             (* -dtrawlambda *)
+let dump_tlambda = ref false             (* -dtlambda *)
+let dump_ulambda = ref false             (* -dulambda *)
+let dump_tulambda = ref false             (* -dtulambda *)
+let dump_rtlambda = ref false             (* -drtlambda *)
+let dump_il = ref false                  (* -dil *)
+let lightning = ref true                 (* -lightning *)
+let lightning_ilasm = ref "ilasm"        (* -ilasm com *) 
+let lightning_debug = ref false          (* -ildebug *) 
+let snk_file = ref ""                    (* -key *)
+
+let make_dll = ref false              (* -a *)
+let inlined_il = ref ([]:string list)    (* -inlineIL *)
+let noILexceptionHandling = ref false (* -noCLIexception *)
+let peverify = ref false                 (* -peverify *)
+let noctropt = ref false                 (* -noctropt *)
+
+type compmode = PlainIL | MarshalledIL (*| ReflectionAPI | InternalAssembler *)
+let compilation_mode = ref MarshalledIL
+
+let reflection_linker = ref false
+let unverif =  ref false
+
+let rebuiltmode = ref false (* should be false *)
+
+type stringrepr_options = SRO_string | SRO_chararray | SRO_strbuilder
+let stringrepr = ref SRO_chararray
+
+let variantrepr_objarray = ref false
+let recordrepr_objarray = ref false
+
+let toplevel_mode = ref false 
+let compiling_camil_corelib = ref false
+let ocaml_eval_order = ref false
+(***)
+

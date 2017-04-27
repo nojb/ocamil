@@ -10,21 +10,32 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: config.mlp,v 1.190 2002/08/05 14:15:46 xleroy Exp $ *)
+(* $Id: config.mlp,v 1.5 2006/11/08 15:08:33 montela Exp $ *)
 
 (* The main OCaml version string has moved to stdlib/sys.ml *)
 let version = Sys.ocaml_version
 
-let standard_library =
-  try
-    Sys.getenv "OCAMLLIB"
-  with Not_found ->
-  try
-    Sys.getenv "CAMLLIB"
-  with Not_found ->
-    "%%LIBDIR%%"
+(* TODO COPIE du code dans ilpath.mlp : virer les doublons ! *)
+let rec valenv l default = 
+  match l with 
+     [] -> default
+   | h::q -> 
+       (try 
+	 let env = Sys.getenv h in
+	 let l=String.length env in
+	 if env.[0] = '"' && env.[l-1] = '"' then String.sub env 1 (l-2) else env
+       with _ -> valenv q default);;
 
-let standard_runtime = "%%BYTERUN%%"
+(* CAMIL 1 Modif et 3 ajouts *)
+let standard_library = valenv ["CAMILSTDLIB"; "CAMILLIB"] "%%LIBDIR%%"
+(* let ilstd_library = valenv [ "CAMILSTDLIB"; "CAMILLIB"] "%%STDLIBDIR%%";; *)
+
+(* ICI difference en cas de Bootstrap *)
+let camil_core_fullpath = (valenv ["CAMILCORELIB"; "CAMILLIB"] "%%LIBDIR%%")^"/core_camil.dll"
+let camil_bindir = valenv [ "CAMILBIN" ] "%%CAMILBINDIR%%" ;;
+let bootstrap = false;;
+
+
 let ccomp_type = "%%CCOMPTYPE%%"
 let bytecomp_c_compiler = "%%BYTECC%%"
 let bytecomp_c_linker = "%%BYTELINK%%"
@@ -68,3 +79,4 @@ let default_executable_name =
     "Unix" -> "a.out"
   | "Win32" | "Cygwin" -> "camlprog.exe"
   | _ -> "camlprog"
+

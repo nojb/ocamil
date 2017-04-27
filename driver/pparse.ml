@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: pparse.ml,v 1.1 2002/02/08 10:14:31 ddr Exp $ *)
+(* $Id: pparse.ml,v 1.2 2003/10/08 15:25:06 montela Exp $ *)
 
 open Format
 
@@ -57,7 +57,7 @@ let file ppf inputfile parse_fun ast_magic =
       else false
     with
       Outdated_version ->
-        Misc.fatal_error "Ocaml and preprocessor have incompatible versions"
+        Misc.fatal_error "Ocaml and preprocessor have incompatible versions"(*TEMPO*);false(*TODO : faire en sorte que le pb de stloc soit réglé ici *)
     | _ -> false
   in
   let ast =

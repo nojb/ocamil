@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: optcompile.ml,v 1.43 2002/04/18 07:27:39 garrigue Exp $ *)
+(* $Id: optcompile.ml,v 1.16 2006/06/26 15:22:23 montela Exp $ *)
 
 (* The batch compiler *)
 
@@ -18,6 +18,27 @@ open Misc
 open Config
 open Format
 open Typedtree
+
+(* addition for Camil types propagation *)
+open Parsetree
+let insert_primitives_types =
+  let rec insertin_structure = function
+      [] -> []
+    | sit::rem -> begin match sit.pstr_desc with 
+	  Pstr_primitive(prim,vd) -> 
+	    (* insertion of a dummy "let _ = prim" after each "external prim ..." declaration *)
+	    let insertedexp = {pexp_desc = Pexp_ident (Longident.Lident prim);pexp_loc = sit.pstr_loc} in
+	      sit::{sit with pstr_desc=Pstr_eval insertedexp}::(insertin_structure rem)
+	| Pstr_module(id,modexp) -> {sit with pstr_desc=Pstr_module(id,insertin_module modexp)}::(insertin_structure rem)
+	| _ -> sit::(insertin_structure rem)
+      end
+  and insertin_module modexp =
+    match modexp.pmod_desc with
+	Pmod_structure str -> {modexp with pmod_desc=Pmod_structure (insertin_structure str)}
+      | _ -> (* attention ! *) modexp
+  in insertin_structure
+(* *)
+
 
 (* Initialize the search path.
    The current directory is always searched first,
@@ -55,7 +76,12 @@ let interface ppf sourcefile =
     let ast =
       Pparse.file ppf inputfile Parse.interface ast_intf_magic_number in
     if !Clflags.dump_parsetree then fprintf ppf "%a@." Printast.interface ast;
+      Typemod.camil_clear_typedecls ();
     let sg = Typemod.transl_signature (initial_env()) ast in
+      (* TEMPO CAMIL !! *)
+      if not !Clflags.rebuiltmode then
+	Ilcompile.compile_interface prefixname (initial_env()) ast;
+      (*  *)
     if !Clflags.print_types then
       fprintf std_formatter "%a@." Printtyp.signature
                                    (Typemod.simplify_signature sg);
@@ -72,8 +98,12 @@ let print_if ppf flag printer arg =
   if !flag then fprintf ppf "%a@." printer arg;
   arg
 
+let print_if_conv ppf flag printer conv arg =
+  if !flag then fprintf ppf "%a@." printer (conv arg);
+  arg
+
 let (++) x f = f x
-let (+++) (x, y) f = (x, f y)
+let (+++) (x, y, z) f = (x, f y, z)
 
 let implementation ppf sourcefile =
   let prefixname = Misc.chop_extension_if_any sourcefile in
@@ -81,16 +111,19 @@ let implementation ppf sourcefile =
   let inputfile = Pparse.preprocess sourcefile in
   let env = initial_env() in
   Compilenv.reset modulename;
+    Typemod.camil_clear_typedecls ();
   try
-    Pparse.file ppf inputfile Parse.implementation ast_impl_magic_number
+  ignore(  Pparse.file ppf inputfile Parse.implementation ast_impl_magic_number
+    ++ insert_primitives_types
     ++ print_if ppf Clflags.dump_parsetree Printast.implementation
     ++ Typemod.type_implementation sourcefile prefixname modulename env
     ++ Translmod.transl_store_implementation modulename
-    +++ print_if ppf Clflags.dump_rawlambda Printlambda.lambda
+    +++ print_if ppf Clflags.dump_trawlambda Printtypedlambda.typedlambda
+    +++ print_if_conv ppf Clflags.dump_rawlambda Printlambda.lambda Typedlambda.to_lambda
     +++ Simplif.simplify_lambda
-    +++ print_if ppf Clflags.dump_lambda Printlambda.lambda
-    ++ Asmgen.compile_implementation prefixname ppf;
-    Compilenv.save_unit_info (prefixname ^ ".cmx");
+    +++ print_if ppf Clflags.dump_tlambda Printtypedlambda.typedlambda
+    +++ print_if_conv ppf Clflags.dump_lambda Printlambda.lambda Typedlambda.to_lambda
+    ++ Ilcompile.compile_implementation prefixname ppf);
     Warnings.check_fatal ();
     Pparse.remove_preprocessed inputfile
   with x ->

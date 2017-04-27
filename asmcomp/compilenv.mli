@@ -10,11 +10,11 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: compilenv.mli,v 1.12 2002/02/08 16:55:30 xleroy Exp $ *)
+(* $Id: compilenv.mli,v 1.7 2006/07/08 05:11:38 montela Exp $ *)
 
 (* Compilation environments for compilation units *)
 
-open Clambda
+open Ctypedlambda
 
 (* Each .o file has a matching .cmx file that provides the following infos
    on the compilation unit:
@@ -30,11 +30,15 @@ type unit_infos =
   { mutable ui_name: string;                    (* Name of unit implemented *)
     mutable ui_defines: string list;      (* Unit and sub-units implemented *)
     mutable ui_imports_cmi: (string * Digest.t) list; (* Interfaces imported *)
-    mutable ui_imports_cmx: (string * Digest.t) list; (* Infos imported *)
+    mutable ui_imports_cmx: (string * Il.typeref * Digest.t) list; (* Infos imported *)
     mutable ui_approx: value_approximation;     (* Approx of the structure *)
     mutable ui_curry_fun: int list;             (* Currying functions needed *)
     mutable ui_apply_fun: int list;             (* Apply functions needed *)
-    mutable ui_force_link: bool }               (* Always linked *)
+    mutable ui_force_link: bool;                (* Always linked *)
+    mutable ui_class: Il.typeref;              (* IL class name *)
+    mutable ui_compilationmode: Clflags.compmode;            
+(*    mutable ui_nb_const_ctr: int; *)
+  }
 
 (* Each .a library has a matching .cmxa file that provides the following
    infos on the library: *)
@@ -51,9 +55,9 @@ val reset: string -> unit
 val current_unit_name: unit -> string
         (* Return the name of the unit being compiled *)
 
-val global_approx: Ident.t -> Clambda.value_approximation
+val global_approx: Ident.t -> Ctypedlambda.value_approximation
         (* Return the approximation for the given global identifier *)
-val set_global_approx: Clambda.value_approximation -> unit
+val set_global_approx: Ctypedlambda.value_approximation -> unit
         (* Record the approximation of the unit being compiled *)
 
 val need_curry_fun: int -> unit
@@ -80,3 +84,11 @@ type error =
 exception Error of error
 
 val report_error: Format.formatter -> error -> unit
+
+val get_current_unit : unit -> unit_infos
+
+(*  AJOUT RAF *)
+val current_unit_addit : string list ref
+val init_toplevel : unit -> unit
+val set_appending_tocmx_fun : (out_channel -> unit) -> unit
+val skip_header_unit_info : in_channel -> string -> unit

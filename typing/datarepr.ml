@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: datarepr.ml,v 1.12 2000/03/21 14:43:23 xleroy Exp $ *)
+(* $Id: datarepr.ml,v 1.2 2006/02/05 01:47:11 montela Exp $ *)
 
 (* Compute constructor and label descriptions from type declarations,
    determining their representation. *)
@@ -19,21 +19,22 @@ open Misc
 open Asttypes
 open Types
 
+(* CAMILMOD: patched to cope with variant repr. modif. *)
 let constructor_descrs ty_res cstrs =
   let num_consts = ref 0 and num_nonconsts = ref 0 in
   List.iter
     (function (name, []) -> incr num_consts
             | (name, _)  -> incr num_nonconsts)
     cstrs;
-  let rec describe_constructors idx_const idx_nonconst = function
+    let constants_only = if !num_nonconsts>0 then (num_nonconsts := !num_consts + !num_nonconsts;num_consts:=0;false) else true in
+    let rec describe_constructors idx  = function
       [] -> []
     | (name, ty_args) :: rem ->
         let (tag, descr_rem) =
-          match ty_args with
-            [] -> (Cstr_constant idx_const,
-                   describe_constructors (idx_const+1) idx_nonconst rem)
-          | _  -> (Cstr_block idx_nonconst,
-                   describe_constructors idx_const (idx_nonconst+1) rem) in
+	  if constants_only then (Cstr_constant idx,
+				  describe_constructors (idx+1)  rem)
+	  else  (Cstr_block idx,
+                 describe_constructors  (idx+1) rem) in
         let cstr =
           { cstr_res = ty_res;
             cstr_args = ty_args;
@@ -42,7 +43,7 @@ let constructor_descrs ty_res cstrs =
             cstr_consts = !num_consts;
             cstr_nonconsts = !num_nonconsts } in
         (name, cstr) :: descr_rem in
-  describe_constructors 0 0 cstrs
+  describe_constructors 0 cstrs
 
 let exception_descr path_exc decl =
   { cstr_res = Predef.type_exn;
@@ -76,17 +77,14 @@ let label_descrs ty_res lbls repres =
 
 exception Constr_not_found
 
+(* CAMILMOD: patched to cope with variant repr. modif. *)
 let rec find_constr tag num_const num_nonconst = function
     [] ->
       raise Constr_not_found
-  | (name, [] as cstr) :: rem ->
-      if tag = Cstr_constant num_const
-      then cstr
-      else find_constr tag (num_const + 1) num_nonconst rem
   | (name, _ as cstr) :: rem ->
-      if tag = Cstr_block num_nonconst
+      if tag = Cstr_constant num_const || tag = Cstr_block num_nonconst
       then cstr
-      else find_constr tag num_const (num_nonconst + 1) rem
+      else find_constr tag (num_const+1) (num_nonconst + 1) rem
 
 let find_constr_by_tag tag cstrlist =
   find_constr tag 0 0 cstrlist

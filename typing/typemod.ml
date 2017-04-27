@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: typemod.ml,v 1.54 2002/08/19 12:23:23 xleroy Exp $ *)
+(* $Id: typemod.ml,v 1.7 2006/06/27 18:15:19 montela Exp $ *)
 
 (* Type-checking of the module language *)
 
@@ -21,6 +21,63 @@ open Parsetree
 open Types
 open Typedtree
 open Format
+
+
+(* CAMILADD *)
+let modulepath = ref []
+let lengthen_modulepath name = modulepath := name::(!modulepath)
+let shorten_modulepath() = modulepath := List.tl !modulepath
+
+let qualifiedpath s = List.fold_left (fun x y -> y^"."^x) s !modulepath 
+
+type camil_typedecl_tree = 
+    {ctd_name:string;
+     mutable ctd_decls:(string * Types.type_declaration * Env.t) list;
+     mutable ctd_children:camil_typedecl_tree list
+    }
+
+
+let camil_typedecls = {ctd_name="";ctd_decls=[];ctd_children=[]}
+
+let camil_toplevel_session_typedecls = ref {ctd_name="";ctd_decls=[];ctd_children=[]}
+
+let updated_toplevel_typedecls () = 
+  {
+    ctd_name="";
+    ctd_decls=camil_typedecls.ctd_decls@(!camil_toplevel_session_typedecls.ctd_decls);
+    ctd_children=camil_typedecls.ctd_children@(!camil_toplevel_session_typedecls.ctd_children)
+  }
+  
+let camil_clear_typedecls () = 
+  camil_toplevel_session_typedecls := updated_toplevel_typedecls();
+  camil_typedecls.ctd_decls <- [];
+  camil_typedecls.ctd_children <- []
+
+let camil_insert_typedecl name decl env = 
+(*  let s = ref "" in List.iter (fun x -> s:= !s ^ x ^ ";") !modulepath;
+  Printf.printf "Defining %s in %s\n" name !s; *)
+
+  let rec addto_typedecltree ctd modpath name decl env =
+    match modpath with
+	[] -> ctd.ctd_decls <- (name,decl,env)::ctd.ctd_decls
+      | modpathitem::innerpath -> 
+	  if List.exists (fun (s,_,_) -> s=name) ctd.ctd_decls then failwith "CamIL restriction: homonym types in submodules are not allowed."
+	  else ctd.ctd_children <- appendsubmodule ctd.ctd_children modpathitem innerpath name decl env
+  and appendsubmodule modules modpathitem innerpath name decl env =
+    match modules with
+	[] -> [build_typedecltree modpathitem innerpath name decl env]
+      | ({ctd_name=modname;ctd_decls=decls;ctd_children=subs} as md)::othermodules -> 
+	  if modname = modpathitem then (addto_typedecltree md innerpath name decl env;modules)
+	  else md::(appendsubmodule othermodules modpathitem innerpath name decl env)
+  and build_typedecltree modpathitem innerpath name decl env =
+    match innerpath with 
+	[] -> {ctd_name=modpathitem;ctd_decls=[name,decl,env];ctd_children=[]}
+      | hd::tl ->
+	  {ctd_name=modpathitem;ctd_decls=[];ctd_children=[build_typedecltree hd tl name decl env]}
+  in
+    addto_typedecltree camil_typedecls (List.rev !modulepath) name decl env
+(* /CAMILADD *)    
+
 
 type error =
     Unbound_module of Longident.t
@@ -376,6 +433,17 @@ and type_structure env sstr =
           (fun (name, decl) -> check "type" loc type_names name)
           sdecls;
         let (decls, newenv) = Typedecl.transl_type_decl env sdecls in
+	  (* CAMILADD *)
+	  List.iter (fun (id,decl) ->
+		       let qname = qualifiedpath (Ident.name id) in 
+			 match decl.type_kind with
+			     Type_variant _ -> (if !Clflags.verbose then Printf.printf "Impl defines new variant type %s\n" qname);
+			       camil_insert_typedecl (Ident.name id) decl newenv  
+			   | Type_record _ -> (if !Clflags.verbose then Printf.printf "Impl defines new record type %s\n" qname);
+			       camil_insert_typedecl (Ident.name id) decl newenv 
+			   | _ -> () 
+		    ) decls;
+	  (* /CAMILADD *)
         let (str_rem, sig_rem, final_env) = type_struct newenv srem in
         (Tstr_type decls :: str_rem,
          map_end (fun (id, info) -> Tsig_type(id, info)) decls sig_rem,
@@ -396,7 +464,9 @@ and type_structure env sstr =
          final_env)
     | {pstr_desc = Pstr_module(name, smodl); pstr_loc = loc} :: srem ->
         check "module" loc module_names name;
+	lengthen_modulepath name; (* CAMILADD *)
         let modl = type_module env smodl in
+	  shorten_modulepath(); (* CAMILADD *)
         let (id, newenv) = Env.enter_module name modl.mod_type env in
         let (str_rem, sig_rem, final_env) = type_struct newenv srem in
         (Tstr_module(id, modl) :: str_rem,

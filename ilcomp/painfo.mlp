@@ -1,0 +1,45 @@
+(************************************************************************)
+(*                                                                      *)
+(*                                CamIL                                 *)
+(*                                                                      *)
+(* created by  Bruno Pagano, projet Cristal, INRIA Rocquencourt (2000)  *)
+(* modified by Emmanuel Chailloux & Raphael Montelatici, PPS (2003-2006)*)
+(*                                                                      *)
+(************************************************************************)
+
+open Config;;
+
+type assembly;; (* for compatibility with bootstrapped version *)
+
+let command assemblyname =
+  let tempfile = Filename.temp_file "il" ".key" in
+    match (Sys.command  ("%EXEC% "^(Filename.quote assemblyname)^" a >"^ tempfile)) with
+	0 ->
+	  let ic=open_in tempfile in
+	  let token=ref (input_line ic) in 
+	  let version=input_line ic in
+	    close_in ic;((!token,version),None)
+      | _ -> raise Not_found;;
+
+let read_assemblyinfo assemblyname =
+  let tentative painfo_dir = 
+    let workingdir = Sys.getcwd() in
+      try
+	if !Clflags.verbose then (Printf.printf "Comm> 1)cd \"%s\" 2)painfo %s 3)cd \"%s\"\n" painfo_dir assemblyname workingdir;flush stdout);
+	if painfo_dir<>"" then Sys.chdir painfo_dir;
+	let res = command assemblyname in
+	  if painfo_dir<>"" then Sys.chdir workingdir;
+	  res
+      with e -> Sys.chdir workingdir;raise e
+  in
+    try (tentative camil_bindir)
+    with _ -> (
+      try (tentative "") 
+    with _ -> raise Not_found
+    );;
+
+let read_assemblyinfo_of_core_camil () = 
+  failwith "Painfo.read_token_of_core_camil : BOOTSTRAP ONLY";;
+
+let read_assemblyinfo_of_self () =
+  failwith "Painfo.read_token_version_of_self : BOOTSTRAP ONLY";;

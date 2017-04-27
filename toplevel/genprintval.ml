@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: genprintval.ml,v 1.31 2002/06/26 14:52:17 xleroy Exp $ *)
+(* $Id: genprintval.ml,v 1.3 2006/06/28 12:40:00 montela Exp $ *)
 
 (* To print values *)
 
@@ -29,6 +29,7 @@ module type OBJ =
     val tag : t -> int
     val size : t -> int
     val field : t -> int -> t
+    val record_field : t -> string -> t
   end
 
 module type EVALPATH =
@@ -103,13 +104,14 @@ module Make(O : OBJ)(EVP : EVALPATH with type value = O.t) = struct
         (fun x -> Oval_string (O.obj x : string));
       Pident(Ident.create "print_int32"), Predef.type_int32,
         (fun x -> Oval_stuff ("<int32 " ^
-                              Int32.to_string (O.obj x : int32) ^ ">"));
+(*TEMPO                              Int32.to_string (O.obj x : int32) ^ ">"));*)">"));
+
       Pident(Ident.create "print_nativeint"), Predef.type_nativeint,
         (fun x -> Oval_stuff ("<nativeint " ^
-                             Nativeint.to_string (O.obj x : nativeint) ^ ">"));
+(*TEMPO                             Nativeint.to_string (O.obj x : nativeint) ^ ">"));*)">"));
       Pident(Ident.create "print_int64"), Predef.type_int64,
         (fun x -> Oval_stuff ("<int64 " ^
-                              Int64.to_string (O.obj x : int64) ^ ">"))
+(*TEMPO                              Int64.to_string (O.obj x : int64) ^ ">")) *)">"));
     ] : (Path.t * type_expr * (O.t -> Outcometree.out_value)) list)
 
     let install_printer path ty fn =
@@ -247,7 +249,12 @@ module Make(O : OBJ)(EVP : EVALPATH with type value = O.t) = struct
                     let tag =
                       if O.is_block obj
                       then Cstr_block(O.tag obj)
-                      else Cstr_constant(O.obj obj) in
+                      else 
+			let cst = try 
+			  if Obj.is_bool (Obj.magic obj) then (* CAMIL, pbs transtyping bools and ints *) 
+			    (if (O.obj obj:bool) then 1 else 0) 
+			else O.obj obj with CLIinteraction.ManagedException("System.NullReferenceException",_) -> 0 (* unit represented by null *)
+			in Cstr_constant cst in
                     let (constr_name, constr_args) =
                       Datarepr.find_constr_by_tag tag constr_list in
                     let ty_args =
@@ -273,7 +280,7 @@ module Make(O : OBJ)(EVP : EVALPATH with type value = O.t) = struct
                                   Ctype.Cannot_apply -> abstract_type in
                               let lid = tree_of_label env path lbl_name in
                               let v =
-                                tree_of_val (depth - 1) (O.field obj pos)
+                                tree_of_val (depth - 1) (O.record_field obj lbl_name)
                                   ty_arg
                               in
                               (lid, v) :: tree_of_fields (pos + 1) remainder

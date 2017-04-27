@@ -10,12 +10,14 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: translobj.ml,v 1.7 2002/04/24 09:49:05 xleroy Exp $ *)
+(* $Id: translobj.ml,v 1.3 2006/04/24 00:19:51 montela Exp $ *)
 
 open Misc
 open Asttypes
 open Longident
 open Lambda
+open Typedlambda
+open Types
 
 (* Get oo primitives identifiers *)
 
@@ -43,18 +45,19 @@ let reset_labels () =
 
 (* Insert labels *)
 
-let string s = Lconst (Const_base (Const_string s))
+let string s = build_term (TypLconst (TConst_base (Const_string s))) (coretype_annotation Predef.type_string)
 
 let transl_label_init expr =
+  let tint = coretype_annotation Predef.type_int in
   if !used_methods = [] then
     expr
   else
-    let init = Ident.create "new_method" in
+    let init = Ident.create "new_method",(coretype_annotation (Btype.newgenty (Tarrow("",Predef.type_string,Predef.type_int,Cunknown)))) (* string->int*) in
     let expr' =
-      Llet(StrictOpt, init, oo_prim "new_method",
+      build_letterm (StrictOpt, init, oo_prim "new_method",
       List.fold_right
         (fun (lab, id) expr ->
-           Llet(StrictOpt, id, Lapply(Lvar init, [string lab]), expr))
+           build_letterm (StrictOpt, (id,tint), build_term (TypLapply(build_varterm init, [string lab])) tint, expr))
         !used_methods
         expr)
     in

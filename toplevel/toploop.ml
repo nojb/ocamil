@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: toploop.ml,v 1.74 2002/07/25 15:45:14 xleroy Exp $ *)
+(* $Id: toploop.ml,v 1.25 2006/06/28 12:40:00 montela Exp $ *)
 
 (* The interactive toplevel loop *)
 
@@ -65,14 +65,28 @@ let rec eval_path = function
 
 (* To print values *)
 
+
+module ModifiedObj = struct
+  type t = Obj.t
+  let is_block o = (Obj.is_block o) && (Obj.size o > 0)
+  let obj o = 
+    if is_block o then Obj.obj o
+    else if Obj.is_block o then (Obj.magic (Obj.tag o))
+    else Obj.obj o
+  let tag = Obj.tag
+  let size = Obj.size
+  let field = Obj.field
+  let record_field = Obj.record_field
+end
+
 module EvalPath = struct
-  type value = Obj.t
+  type value = ModifiedObj.t
   exception Error
   let eval_path p = try eval_path p with Symtable.Error _ -> raise Error
   let same_value v1 v2 = (v1 == v2)
 end
 
-module Printer = Genprintval.Make(Obj)(EvalPath)
+module Printer = Genprintval.Make(ModifiedObj)(EvalPath)
 
 let max_printer_depth = ref 100
 let max_printer_steps = ref 300
@@ -109,31 +123,44 @@ let input_name = Location.input_name
 let may_trace = ref false (* Global lock on tracing *)
 type evaluation_outcome = Result of Obj.t | Exception of exn
 
+
+open Ident
+
 let load_lambda ppf lam =
-  if !Clflags.dump_rawlambda then fprintf ppf "%a@." Printlambda.lambda lam;
+  if !Clflags.dump_rawlambda then fprintf ppf "%a@." Printtypedlambda.typedlambda lam;
   let slam = Simplif.simplify_lambda lam in
-  if !Clflags.dump_lambda then fprintf ppf "%a@." Printlambda.lambda slam;
+  if !Clflags.dump_lambda then fprintf ppf "%a@." Printtypedlambda.typedlambda slam;
+  let size = 101 in (* !!!! c'est la taille des globals ! que mettre ? *)
+
+  Ildynamic.compile_phrase ppf (size,slam);
+(*TEMPO
   let (init_code, fun_code) = Bytegen.compile_phrase slam in
-  if !Clflags.dump_instr then
-    fprintf ppf "%a%a@."
-    Printinstr.instrlist init_code
-    Printinstr.instrlist fun_code;
   let (code, code_size, reloc) = Emitcode.to_memory init_code fun_code in
   let can_free = (fun_code = []) in
+ *)
   let initial_symtable = Symtable.current_state() in
-  Symtable.patch_object code reloc;
+      (*TEMPO Symtable.patch_object code reloc;*)
   Symtable.update_global_table();
   try
     may_trace := true;
-    let retval = (Meta.reify_bytecode code code_size) () in
+	(*TEMPO	let retval = (Meta.reify_bytecode code code_size) () in*)
+	(*TEMPO*)	Ildynamic.execute_last_phrase setvalue getvalue;
     may_trace := false;
-    if can_free then Meta.static_free code;
-    Result retval
-  with x ->
+	(*TEMPO	if can_free then Meta.static_free code;
+	  Result retval *)
+	(*TEMPO*) Result (Obj.repr (getvalue "$prev"))
+      with 
+	  CLIinteraction.ManagedException (name,e) -> 
+	    let message=CLIinteraction.getMessage e in
+	      Utils.bug "Toploop: exception during Phrase evaluation " (name^":"^message)
+	| x ->
     may_trace := false;
-    if can_free then Meta.static_free code;
-    Symtable.restore_state initial_symtable;
+	    (*TEMPO	if can_free then Meta.static_free code;
+	      Symtable.restore_state initial_symtable;*)
     Exception x
+
+
+
 
 (* Print the outcome of an evaluation *)
 
@@ -188,7 +215,7 @@ let print_out_exception ppf exn outv =
   !print_out_phrase ppf (Ophr_exception (exn, outv))
 
 let print_exception_outcome ppf exn =
-  if exn = Out_of_memory then Gc.full_major ();
+  if exn = Out_of_memory then (*TEMPO Gc.full_major*) ();
   let outv = outval_of_value !toplevel_env (Obj.repr exn) Predef.type_exn in
   print_out_exception ppf exn outv
 
@@ -202,6 +229,7 @@ let directive_table = (Hashtbl.create 13 : (string, directive_fun) Hashtbl.t)
 let execute_phrase print_outcome ppf phr =
   match phr with
   | Ptop_def sstr ->
+      Typemod.camil_clear_typedecls ();
       let oldenv = !toplevel_env in
       Typecore.reset_delayed_checks ();
       let (str, sg, newenv) = Typemod.type_structure oldenv sstr in
@@ -226,7 +254,7 @@ let execute_phrase print_outcome ppf phr =
               else Ophr_signature []
           | Exception exn ->
               toplevel_env := oldenv;
-              if exn = Out_of_memory then Gc.full_major();
+(*TEMPO              if exn = Out_of_memory then Gc.full_major();*)
               let outv =
                 outval_of_value !toplevel_env (Obj.repr exn) Predef.type_exn
               in
@@ -291,7 +319,7 @@ let use_file ppf name =
         with
         | Exit -> false
         | Sys.Break -> fprintf ppf "Interrupted.@."; false
-        | x -> Errors.report_error ppf x; false) in
+        | x -> Opterrors.report_error ppf x; false) in
     close_in ic;
     success
   with Not_found -> fprintf ppf "Cannot find file %s.@." name; false
@@ -303,6 +331,8 @@ let use_silently ppf name =
 
 let first_line = ref true
 let got_eof = ref false;;
+
+let input_char_function = ref (fun () -> input_char stdin);;
 
 let refill_lexbuf buffer len =
   if !got_eof then (got_eof := false; 0) else begin
@@ -317,7 +347,7 @@ let refill_lexbuf buffer len =
     try
       while true do
         if !i >= len then raise Exit;
-        let c = input_char stdin in
+        let c = !input_char_function() in
         buffer.[!i] <- c;
         incr i;
         if c = '\n' then raise Exit;
@@ -341,10 +371,16 @@ let empty_lexbuf lb =
    beginning of loop() so that user code linked in with ocamlmktop
    can call directives from Topdirs. *)
 
+let init_toplevel() =
+  Compilenv.init_toplevel();
+  Ilcompile.initialize_assemblyref() (*; TODO !!
+  Il.new_assemblyref "Toploop" "[ocamiltop]" *)
+
 let _ =
   Sys.interactive := true;
-  Symtable.init_toplevel();
-  Compile.init_path()
+(*TEMPO  Symtable.init_toplevel(); *) (* Comprendre ce que ça fait exactement ... *)
+  (*TEMPO*) (* Compilenv.*)init_toplevel();
+  Optcompile.init_path()
 
 let load_ocamlinit ppf =
   if Sys.file_exists ".ocamlinit" then ignore(use_silently ppf ".ocamlinit")
@@ -354,23 +390,25 @@ let set_paths () =
      but keep the directories that user code linked in with ocamlmktop
      may have added to load_path. *)
   load_path := !load_path @ [Filename.concat Config.standard_library "camlp4"];
-  load_path := "" :: (List.rev !Clflags.include_dirs @ !load_path);
-  Dll.add_path !load_path
+  load_path := "" :: (List.rev !Clflags.include_dirs @ !load_path)
+(*TEMPO ; Dll.add_path !load_path*)
 
 let initialize_toplevel_env () =
-  toplevel_env := Compile.initial_env()
+ (*TEMPO*) setvalue "$prev" (Obj.repr ());
+  toplevel_env := Optcompile.initial_env()
+    
 
 (* The interactive loop *)
 
 exception PPerror
 
 let loop ppf =
-  fprintf ppf "        Objective Caml version %s@.@." Config.version;
+  fprintf ppf "(CAMIL) Objective Caml version %s@.@." Config.version;
   initialize_toplevel_env ();
   let lb = Lexing.from_function refill_lexbuf in
   Location.input_name := "";
   Location.input_lexbuf := Some lb;
-  Sys.catch_break true;
+(*TEMPO  Sys.catch_break true;*)
   load_ocamlinit ppf;
   while true do
     try
@@ -384,10 +422,49 @@ let loop ppf =
     | End_of_file -> exit 0
     | Sys.Break -> fprintf ppf "Interrupted.@."
     | PPerror -> ()
-    | x -> Errors.report_error ppf x
+    | x -> Opterrors.report_error ppf x
   done
 
+let result_for_form () =
+  Buffer.contents Format.stdbuf;;
+
+let init_loop_for_form dummyformatter = 
+  let ppf = Format.str_formatter in
+    fprintf ppf "Objective Caml version %s@.@." Config.version;
+    initialize_toplevel_env ();
+    let lb = Lexing.from_function refill_lexbuf in
+	Location.input_name := "";
+	Location.input_lexbuf := Some lb;;
+	(*      load_ocamlinit ppf; *)
+	
+let loop_for_form windowcontent = 
+  Buffer.clear Format.stdbuf;
+  let ppf = Format.str_formatter in
+  let index=ref (-1) in
+  let loopform_inputchar () =
+    incr index;
+    windowcontent.[!index]
+  in
+    input_char_function := loopform_inputchar;
+    try
+      let lb = Lexing.from_function refill_lexbuf in
+	empty_lexbuf lb;
+	Location.reset();
+	first_line := true;
+	let phr = try !parse_toplevel_phrase lb with Exit -> raise PPerror in
+	  if !Clflags.dump_parsetree then Printast.top_phrase ppf phr;
+	  ignore(execute_phrase true ppf phr)
+    with
+      | End_of_file -> exit 0
+      | Sys.Break -> fprintf ppf "Interrupted.@."
+      | PPerror -> ()
+      | x -> Opterrors.report_error ppf x
+	  
+
+
 (* Execute a script *)
+external shift_argv : unit -> unit =
+  "void" "CamIL.Sys" "shift_argv" "object"
 
 let run_script ppf name args =
   let rec find n =
@@ -397,10 +474,11 @@ let run_script ppf name args =
   let pos = find 0 in
   let len = Array.length args - pos in
   if Array.length Sys.argv < len then invalid_arg "Toploop.run_script";
-  Array.blit args pos Sys.argv 0 len;
-  Obj.truncate (Obj.repr Sys.argv) len;
+(* OLD..    Array.blit args pos Sys.argv 0 len;
+   Obj.func_truncate (Obj.repr Sys.argv) len; *)
+  ignore(shift_argv());
   Arg.current := 0;
-  Compile.init_path();
-  toplevel_env := Compile.initial_env();
+  Optcompile.init_path();
+  initialize_toplevel_env();
   Sys.interactive := false;
   use_silently ppf name

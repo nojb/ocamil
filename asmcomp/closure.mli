@@ -10,9 +10,11 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: closure.mli,v 1.5 1999/11/17 18:56:30 xleroy Exp $ *)
+(* $Id: closure.mli,v 1.5 2005/12/25 04:01:25 montela Exp $ *)
 
 (* Introduction of closures, uncurrying, recognition of direct calls *)
 
-val intro: int -> Lambda.lambda -> Clambda.ulambda
+val occurs_var_untyped : Ident.t -> Clambda.ulambda -> bool (* encore utilisé dans compint *)
+val occurs_var : Ident.t -> Clambda.typeinfo Ctypedlambda.utypedlambda -> bool 
+val intro: int -> Typedlambda.typedlambda -> Clambda.typeinfo Ctypedlambda.utypedlambda
 

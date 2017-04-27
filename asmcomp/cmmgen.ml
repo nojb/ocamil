@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: cmmgen.ml,v 1.83 2002/08/19 12:23:55 xleroy Exp $ *)
+(* $Id: cmmgen.ml,v 1.1 2003/03/18 15:57:16 emmanuel Exp $ *)
 
 (* Translation from closed lambda to C-- *)
 
@@ -545,7 +545,8 @@ let bigarray_set elt_kind layout b args newval =
 
 let default_prim name =
   { prim_name = name; prim_arity = 0 (*ignored*);
-    prim_alloc = true; prim_native_name = ""; prim_native_float = false }
+    prim_alloc = true; prim_native_name = ""; prim_native_float = false;
+    prim_IL = None }
 
 let simplif_primitive_32bits = function
     Pbintofint Pint64 -> Pccall (default_prim "int64_of_int")
@@ -727,6 +728,10 @@ let subst_boxed_number unbox_fn boxed_id unboxed_id exp =
 
 let functions = (Queue.create() : (string * Ident.t list * ulambda) Queue.t)
 
+(*MOD*)
+let fdecl (a,b,c,d) = (a.Clambda.opt,b,c,d)
+let fdecll = List.map fdecl
+
 let rec transl = function
     Uvar id ->
       Cvar id
@@ -734,11 +739,11 @@ let rec transl = function
       transl_constant sc
   | Uclosure(fundecls, []) ->
       let lbl = new_const_symbol() in
-      constant_closures := (lbl, fundecls) :: !constant_closures;
+      constant_closures := (lbl, fdecll (*MOD*) fundecls) :: !constant_closures;
       List.iter
         (fun (label, arity, params, body) ->
           Queue.add (label, params, body) functions)
-        fundecls;
+        (fdecll fundecls);
       Cconst_symbol lbl
   | Uclosure(fundecls, clos_vars) ->
       let block_size =
@@ -763,11 +768,11 @@ let rec transl = function
               int_const arity ::
               Cconst_symbol label ::
               transl_fundecls (pos + 4) rem in
-      Cop(Calloc, transl_fundecls 0 fundecls)
+      Cop(Calloc, transl_fundecls 0 (fdecll (*MOD*) fundecls))
   | Uoffset(arg, offset) ->
       field_address (transl arg) offset
   | Udirect_apply(lbl, args) ->
-      Cop(Capply typ_addr, Cconst_symbol lbl :: List.map transl args)
+      Cop(Capply typ_addr, Cconst_symbol lbl.Clambda.opt (*MOD*) :: List.map transl args)
   | Ugeneric_apply(clos, [arg]) ->
       bind "fun" (transl clos) (fun clos ->
         Cop(Capply typ_addr, [get_field clos 0; transl arg; clos]))

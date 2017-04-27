@@ -10,27 +10,27 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: matching.mli,v 1.11 2001/02/19 20:27:35 maranget Exp $ *)
+(* $Id: matching.mli,v 1.2 2004/07/28 13:02:24 montela Exp $ *)
 
 (* Compilation of pattern-matching *)
 
 open Typedtree
-open Lambda
+open Typedlambda
 
 val for_function:
-        Location.t -> int ref option -> lambda -> (pattern * lambda) list ->
-        partial -> lambda
+        Location.t -> int ref option -> typedlambda -> (pattern * typedlambda) list ->
+        partial -> typedlambda
 val for_trywith:
-        lambda -> (pattern * lambda) list -> lambda
+        typedlambda -> (pattern * typedlambda) list -> typedlambda
 val for_let:
-        Location.t -> lambda -> pattern -> lambda -> lambda
+        Location.t -> typedlambda -> pattern -> typedlambda -> typedlambda
 val for_multiple_match:
-        Location.t -> lambda list -> (pattern * lambda) list -> partial ->
-        lambda
+        Location.t -> typedlambda list -> (pattern * typedlambda) list -> partial ->
+        typedlambda
 
 val for_tupled_function:
-        Location.t -> Ident.t list -> (pattern list * lambda) list ->
-        partial -> lambda
+        Location.t -> typedident list -> (pattern list * typedlambda) list ->
+        partial -> typedlambda
 
 exception Cannot_flatten
 

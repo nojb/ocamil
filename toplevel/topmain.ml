@@ -10,9 +10,12 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: topmain.ml,v 1.29 2002/04/24 08:02:51 xleroy Exp $ *)
+(* $Id: topmain.ml,v 1.16 2006/07/10 00:35:55 montela Exp $ *)
 
 open Clflags
+
+let _ = reflection_linker := true
+let _ = toplevel_mode := true
 
 let usage = "Usage: ocaml <options> <object-files> [script-file]\noptions are:"
 
@@ -22,14 +25,15 @@ let prepare ppf =
   Toploop.set_paths ();
   try List.for_all (Topdirs.load_file ppf) (List.rev !preload_objects)
   with x ->
-    try Errors.report_error ppf x; false
+    try Opterrors.report_error ppf x; false
     with x ->
       Format.fprintf ppf "Uncaught exception: %s\n" (Printexc.to_string x);
       false
 
+
 let file_argument name =
   let ppf = Format.err_formatter in
-  if Filename.check_suffix name ".cmo" || Filename.check_suffix name ".cma"
+  if (*TODO Filename.check_suffix name ".cmx" || *) Filename.check_suffix name ".cmxa"
   then preload_objects := name :: !preload_objects
   else exit
       (if prepare ppf && Toploop.run_script ppf name Sys.argv then 0 else 2)
@@ -69,7 +73,19 @@ let main () =
      "-dparsetree", Arg.Set dump_parsetree, " (undocumented)";
      "-drawlambda", Arg.Set dump_rawlambda, " (undocumented)";
      "-dlambda", Arg.Set dump_lambda, " (undocumented)";
-     "-dinstr", Arg.Set dump_instr, " (undocumented)";
+(*     "-dinstr", Arg.Set dump_instr, " (undocumented)";*)
+	 "-dulambda", Arg.Set dump_ulambda, " (undocumented)";
+       "-dtlambda", Arg.Set dump_tlambda, " (undocumented)";
+       "-dtulambda", Arg.Set dump_tulambda, " (undocumented)";
+       "-drtlambda", Arg.Set dump_rtlambda, " (undocumented)";
+       "-dil", Arg.Set dump_il, " (undocumented)";
+       "-ildebug", Arg.Set lightning_debug, " il debug mode";
+       "-noCLIexception", Arg.Set noILexceptionHandling, " Disable CLI exception handling";
+       "-strictorder", Arg.Set ocaml_eval_order, " Strictly compliant evaluation order";
+       "-noctropt", Arg.Set noctropt, " (undocumented)";
+       "-plainIL", Arg.Unit (fun () -> compilation_mode := PlainIL), " <undocumented>";
+       "-reflection", Arg.Set reflection_linker, " (undocumented)";
+       "-verbose", Arg.Set verbose, " Print calls to external commands";
     ] file_argument usage;
   if not (prepare Format.err_formatter) then exit 2;
   Toploop.loop Format.std_formatter

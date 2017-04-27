@@ -1,0 +1,283 @@
+package [assembly mscorlib]System;
+
+class Object {}
+
+class AppDomain {
+  [name define_dynamic_assembly] System.Reflection.Emit.AssemblyBuilder DefineDynamicAssembly(System.Reflection.AssemblyName,System.Reflection.Emit.AssemblyBuilderAccess);
+}
+
+class Type {
+  [name type__get_type]static Type GetType(string);
+  [name get_assembly_qualified_name] string get_AssemblyQualifiedName();
+  [name get_full_name] string get_FullName();
+  [name get_field] System.Reflection.FieldInfo GetField(string);
+  [name get_method] System.Reflection.MethodInfo GetMethod(string,Type[]);
+  [name get_constructor] System.Reflection.ConstructorInfo GetConstructor(Type[]);
+  [name invoke_member] Object InvokeMember(string,System.Reflection.BindingFlags,System.Reflection.Binder,Object,Object[]);
+}
+
+class Version {
+  [name assembly_version]<init>(string);
+}
+
+
+package [assembly mscorlib]System.Threading;
+
+class Thread {
+  [name thread_get_domain]static System.AppDomain GetDomain();
+}
+
+package [assembly mscorlib]System.IO;
+
+class FileStream {
+  [name close] void Close();
+}
+
+class File {
+  [name file__open_read]static FileStream OpenRead(string);
+}
+
+
+package [assembly mscorlib]System.Reflection;
+
+flags TypeAttributes {
+  [name RTAClass]Class = 0,
+  [name RTAPublic]Public = 1,
+  [name RTAInterface]Interface = 0x20
+//[name RTASerializable]Serializable = 0x2000
+}
+
+flags MethodAttributes {
+  [name RMAPrivate]Private = 1,
+  [name RMAAssembly]Assembly = 3,
+  [name RMAPublic]Public = 6,
+  [name RMAStatic]Static = 0x10,
+  [name RMAFinal]Final = 0x20,
+  [name RMAVirtual]Virtual = 0x40,
+  [name RMAAbstract]Abstract = 0x400,
+  [name RMASpecialname]SpecialName = 0x800,
+  [name RMARTSpecialname]RTSpecialName = 0x1000
+}
+
+flags FieldAttributes {
+  [name RFAPrivate]Private = 1,
+  [name RFAAssembly]Assembly = 3,
+  [name RFAPublic]Public = 6,
+  [name RFAStatic]Static = 0x10,
+  [name RFAInitonly]InitOnly = 0x20
+}
+
+flags BindingFlags {
+  [name BFInvokeMethod]InvokeMethod = 0x100
+}
+
+enum CallingConventions {
+  [name RCCStandard]Standard = 1,
+  [name RCCHasThis]HasThis = 0x20
+}
+
+class Assembly {
+  [name get_type] System.Type GetType(string);
+  [name assembly__load_from] static Assembly LoadFrom(string);
+}
+
+class AssemblyName {
+  [name assembly_name] <init>();
+  [name set_name] void set_Name(string);
+  [name set_version] void set_Version(System.Version);
+  [name set_keypair] void set_KeyPair(StrongNameKeyPair); 
+}
+
+class MethodInfo {}
+
+class ConstructorInfo {}
+
+class FieldInfo {}
+
+class StrongNameKeyPair {
+  [name strongname_keypair]<init>(System.IO.FileStream);
+}
+
+class Binder {}
+
+package [assembly mscorlib]System.Reflection.Emit;
+
+enum AssemblyBuilderAccess {
+  [name ABARun]Run = 1,
+  [name ABASave]Save = 2,
+  [name ABARunAndSave]RunAndSave = 3
+}
+
+class AssemblyBuilder extends System.Reflection.Assembly {
+  [name define_dynamic_module] ModuleBuilder DefineDynamicModule(string,string);
+  [name define_transient_dynamic_module] ModuleBuilder DefineDynamicModule(string,boolean);
+  [name save] void Save(string);
+  [name set_entrypoint] void SetEntryPoint(System.Reflection.MethodInfo);
+  [name set_custom_attribute] void SetCustomAttribute(CustomAttributeBuilder);
+}
+
+class ModuleBuilder {
+  [name define_type] TypeBuilder DefineType(string,System.Reflection.TypeAttributes);
+  [name define_type_extends] TypeBuilder DefineType(string,System.Reflection.TypeAttributes,System.Type);
+  //  [name get_type] Type GetType(string);
+}
+
+class TypeBuilder extends System.Type {
+  [name create_type] System.Type CreateType();
+  [name define_method] MethodBuilder DefineMethod(string,System.Reflection.MethodAttributes,System.Reflection.CallingConventions,System.Type,System.Type[]);
+  [name define_constructor] ConstructorBuilder DefineConstructor(System.Reflection.MethodAttributes, System.Reflection.CallingConventions, System.Type[]);
+  [name define_field] FieldBuilder DefineField(string,System.Type,System.Reflection.FieldAttributes);
+}
+
+class ConstructorBuilder extends System.Reflection.ConstructorInfo {
+  [name get_il_generator]ILGenerator GetILGenerator();
+}
+
+class MethodBuilder extends System.Reflection.MethodInfo {
+  [name get_il_generator]ILGenerator GetILGenerator();
+}
+
+class FieldBuilder extends System.Reflection.FieldInfo {}
+
+class LocalBuilder {}
+
+class CustomAttributeBuilder {
+  [name custom_attribute_builder] <init>(System.Reflection.ConstructorInfo,System.Object[]);
+}
+
+class ILGenerator {
+  [name emit]void Emit(OpCode);
+  [name emit_byte]void Emit(OpCode,byte);
+  [name emit_short]void Emit(OpCode,short);
+  [name emit_int]void Emit(OpCode,int);
+  [name emit_long]void Emit(OpCode,long);
+  [name emit_double]void Emit(OpCode,double);
+  [name emit_typed]void Emit(OpCode,System.Type);
+  [name emit_cstr]void Emit(OpCode,System.Reflection.ConstructorInfo);
+  [name emit_meth]void Emit(OpCode,System.Reflection.MethodInfo);
+  [name emit_fld]void Emit(OpCode,System.Reflection.FieldInfo);
+  [name emit_str]void Emit(OpCode,string);
+  [name emit_label]void Emit(OpCode,Label);
+  [name emit_label_array]void Emit(OpCode,Label[]);
+  [name define_label] Label DefineLabel();
+  [name mark_label] void MarkLabel(Label);
+  [name begin_exception_block] Label BeginExceptionBlock();
+  [name begin_catch_block] void BeginCatchBlock(System.Type);
+  [name end_exception_block] void EndExceptionBlock();
+  [name declare_local] LocalBuilder DeclareLocal(System.Type);
+}
+
+class OpCode {}
+
+class OpCodes {
+  [name opcodes__add] static OpCode Add;
+  [name opcodes__and] static OpCode And;
+  [name opcodes__box] static OpCode Box;
+  [name opcodes__beq] static OpCode Beq;
+  [name opcodes__bge] static OpCode Bge;
+  [name opcodes__bgt] static OpCode Bgt;
+  [name opcodes__ble] static OpCode Ble;
+  [name opcodes__blt] static OpCode Blt;
+  [name opcodes__br] static OpCode Br;
+  [name opcodes__brtrue] static OpCode Brtrue;
+  [name opcodes__brfalse] static OpCode Brfalse;
+  [name opcodes__call] static OpCode Call;
+  [name opcodes__callvirt] static OpCode Callvirt;
+  [name opcodes__newobj] static OpCode Newobj;
+  [name opcodes__convi] static OpCode Conv_I;
+  [name opcodes__convi4] static OpCode Conv_I4;
+  [name opcodes__convi8] static OpCode Conv_I8;
+  [name opcodes__castclass] static OpCode Castclass;
+  [name opcodes__ceq] static OpCode Ceq;
+  [name opcodes__cgt] static OpCode Cgt;
+  [name opcodes__clt] static OpCode Clt;
+  [name opcodes__cgt_un] static OpCode Cgt_Un;
+  [name opcodes__clt_un] static OpCode Clt_Un;
+  [name opcodes__div] static OpCode Div;
+  [name opcodes__dup] static OpCode Dup;
+
+  [name opcodes__ldarg] static OpCode Ldarg;
+  [name opcodes__ldarg_0] static OpCode Ldarg_0;
+  [name opcodes__ldarg_1] static OpCode Ldarg_1;
+  [name opcodes__ldarg_2] static OpCode Ldarg_2;
+  [name opcodes__ldarg_3] static OpCode Ldarg_3;
+  [name opcodes__ldarg_s] static OpCode Ldarg_S;
+
+  [name opcodes__starg] static OpCode Starg;
+  [name opcodes__starg_s] static OpCode Starg_S;
+
+  [name opcodes__ldci4] static OpCode Ldc_I4;
+  [name opcodes__ldci4_0] static OpCode Ldc_I4_0;
+  [name opcodes__ldci4_1] static OpCode Ldc_I4_1;
+  [name opcodes__ldci4_2] static OpCode Ldc_I4_2;
+  [name opcodes__ldci4_3] static OpCode Ldc_I4_3;
+  [name opcodes__ldci4_4] static OpCode Ldc_I4_4;
+  [name opcodes__ldci4_5] static OpCode Ldc_I4_5;
+  [name opcodes__ldci4_6] static OpCode Ldc_I4_6;
+  [name opcodes__ldci4_7] static OpCode Ldc_I4_7;
+  [name opcodes__ldci4_8] static OpCode Ldc_I4_8;
+  [name opcodes__ldci4_m1] static OpCode Ldc_I4_M1;
+  [name opcodes__ldci4_s] static OpCode Ldc_I4_S;
+
+  [name opcodes__ldci8] static OpCode Ldc_I8;
+  [name opcodes__ldcr8] static OpCode Ldc_R8;
+
+  [name opcodes__ldloc] static OpCode Ldloc;
+  [name opcodes__ldloc_0] static OpCode Ldloc_0;
+  [name opcodes__ldloc_1] static OpCode Ldloc_1;
+  [name opcodes__ldloc_2] static OpCode Ldloc_2;
+  [name opcodes__ldloc_3] static OpCode Ldloc_3;
+  [name opcodes__ldloc_s] static OpCode Ldloc_S;
+
+  [name opcodes__stloc] static OpCode Stloc;
+  [name opcodes__stloc_0] static OpCode Stloc_0;
+  [name opcodes__stloc_1] static OpCode Stloc_1;
+  [name opcodes__stloc_2] static OpCode Stloc_2;
+  [name opcodes__stloc_3] static OpCode Stloc_3;
+  [name opcodes__stloc_s] static OpCode Stloc_S;
+
+  [name opcodes__ldind_i1] static OpCode Ldind_I1;
+  [name opcodes__ldind_i2] static OpCode Ldind_I2;
+  [name opcodes__ldind_i4] static OpCode Ldind_I4;
+  [name opcodes__ldind_i8] static OpCode Ldind_I8;
+  [name opcodes__ldind_i] static OpCode Ldind_I;
+  [name opcodes__ldind_r8] static OpCode Ldind_R8;
+
+  [name opcodes__ldelem_ref] static OpCode Ldelem_Ref;
+  [name opcodes__ldelem_i2] static OpCode Ldelem_I2;
+
+  [name opcodes__ldfld] static OpCode Ldfld;
+  [name opcodes__ldlen] static OpCode Ldlen;
+  [name opcodes__ldnull] static OpCode Ldnull;
+  [name opcodes__ldsfld] static OpCode Ldsfld;
+  [name opcodes__ldstr] static OpCode Ldstr;
+  [name opcodes__leave] static OpCode Leave;
+  [name opcodes__mul] static OpCode Mul;
+  [name opcodes__neg] static OpCode Neg;
+  [name opcodes__newarr] static OpCode Newarr;
+  [name opcodes__not] static OpCode Not;
+  [name opcodes__or] static OpCode Or;
+  [name opcodes__pop] static OpCode Pop;
+  [name opcodes__rem] static OpCode Rem;
+  [name opcodes__ret] static OpCode Ret;
+  [name opcodes__shl] static OpCode Shl;
+  [name opcodes__shr] static OpCode Shr;
+  [name opcodes__shr_un] static OpCode Shr_Un;
+  [name opcodes__stelem_ref] static OpCode Stelem_Ref;
+  [name opcodes__stelem_i2] static OpCode Stelem_I2;
+  [name opcodes__stfld] static OpCode Stfld;
+  [name opcodes__stsfld] static OpCode Stsfld;
+  [name opcodes__sub] static OpCode Sub;
+  [name opcodes__switch] static OpCode Switch;
+  [name opcodes__tail] static OpCode Tailcall;
+  [name opcodes__throw] static OpCode Throw;
+  [name opcodes__unbox] static OpCode Unbox;
+  [name opcodes__xor] static OpCode Xor;
+  [name opcodes__isinst] static OpCode Isinst;
+  [name opcodes__rethrow] static OpCode Rethrow;
+
+}
+
+class Label {}
+
+

@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: toploop.mli,v 1.23 2002/07/25 15:45:14 xleroy Exp $ *)
+(* $Id: toploop.mli,v 1.2 2003/10/15 08:37:01 montela Exp $ *)
 
 open Format
 
@@ -27,6 +27,10 @@ val set_paths : unit -> unit
 (* The interactive toplevel loop *)
 
 val loop : formatter -> unit
+
+val result_for_form : unit -> string
+val init_loop_for_form : formatter -> unit
+val loop_for_form : string -> unit
 
 (* Read and execute a script from the given file *)
 

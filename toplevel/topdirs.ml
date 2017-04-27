@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: topdirs.ml,v 1.58 2002/06/19 06:11:21 garrigue Exp $ *)
+(* $Id: topdirs.ml,v 1.12 2006/07/03 00:00:10 montela Exp $ *)
 
 (* Toplevel directives *)
 
@@ -19,7 +19,7 @@ open Misc
 open Longident
 open Path
 open Types
-open Emitcode
+(*TEMPO : pas utilisé en fait ! open Emitcode*)
 open Trace
 open Toploop
 
@@ -37,7 +37,7 @@ let _ = Hashtbl.add directive_table "quit" (Directive_none dir_quit)
 let dir_directory s =
   let d = expand_directory Config.standard_library s in
   Config.load_path := d :: !Config.load_path;
-  Dll.add_path [d];
+(*TEMPO  Dll.add_path [d]; *)
   Env.reset_cache()
 
 let _ = Hashtbl.add directive_table "directory" (Directive_string dir_directory)
@@ -52,6 +52,7 @@ let _ = Hashtbl.add directive_table "cd" (Directive_string dir_cd)
 
 exception Load_failed
 
+(*TEMPO
 let check_consistency ppf filename compunit =
   Bytelink.check_consistency filename compunit;
   (* Check consistency of unit against its .cmi, if it can be found *)
@@ -69,6 +70,7 @@ let check_consistency ppf filename compunit =
   with Not_found ->
     (* Couldn't find .cmi, ignore it (or should we print a warning?) *)
     ()
+
 
 let load_compunit ic filename ppf compunit =
   check_consistency ppf filename compunit;
@@ -92,7 +94,29 @@ let load_compunit ic filename ppf compunit =
     print_exception_outcome ppf exn;
     raise Load_failed
   end
+*)
 
+
+let load_file ppf name =
+  (* handles cmxa only *)
+  try
+    if Filename.check_suffix name "cmxa" then
+      begin
+	let file_name = find_in_path !Config.load_path name in
+	let ic = open_in_bin file_name in
+	let refl = (input_value ic : (string*string) list) in
+	  close_in ic;
+	  List.iter (fun (modname,assref)-> Ilcompile.new_assemblyref modname assref) refl;
+	  List.iter ( fun assbly -> if assbly<>("["^Naming.core_camil_assbly^"]") then Ildynamic.startup_dll ((Naming.unbracket assbly)^".dll") )  (Ilcompile.external_assemblies());
+	  true
+      end
+    else raise Not_found
+  with Not_found -> fprintf ppf "Cannot find file %s.@." name; false
+
+
+
+
+(*TEMPO 
 let load_file ppf name =
   try
     let filename = find_in_path !Config.load_path name in
@@ -126,6 +150,7 @@ let load_file ppf name =
     close_in ic;
     success
   with Not_found -> fprintf ppf "Cannot find file %s.@." name; false
+*)
 
 let dir_load ppf name = ignore (load_file ppf name)
 
@@ -182,10 +207,15 @@ let dir_install_printer ppf lid =
     let (ty_arg, path, is_old_style) = find_printer_type ppf lid in
     let v = eval_path path in
     let print_function =
-      if is_old_style then
+(*TEMPO*) (fun formatter repr -> ())
+(*TEMPO      if is_old_style then
         (fun formatter repr -> (Obj.obj v) (Obj.obj repr))
       else
-        (fun formatter repr -> (Obj.obj v) formatter (Obj.obj repr)) in
+        (fun formatter repr -> (Obj.obj v) formatter (Obj.obj repr)) *)
+(* REM : ceci est viré car y a un pb de conversion Array -> Closure *)
+(* quand on passe ce code ml à la version actuelle de CAMIL 25/090/03 *)
+(* Compily not implemented ... *)
+in
     install_printer path ty_arg print_function
   with Exit -> ()
 
@@ -206,11 +236,16 @@ let _ = Hashtbl.add directive_table "remove_printer"
 
 (* The trace *)
 
+(*TEMPO*)
+let tracing_function_ptr = (Obj.magic ():Trace.codeptr)
+(*TEMPO
 external current_environment: unit -> Obj.t = "get_current_environment"
 
 let tracing_function_ptr =
   get_code_pointer
     (Obj.repr (fun arg -> Trace.print_trace (current_environment()) arg))
+*)
+
 
 let dir_trace ppf lid =
   try

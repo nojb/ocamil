@@ -10,18 +10,20 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: compilenv.ml,v 1.18 2002/06/07 07:35:25 xleroy Exp $ *)
+(* $Id: compilenv.ml,v 1.17 2006/07/08 05:11:38 montela Exp $ *)
 
 (* Compilation environments for compilation units *)
 
+
 open Config
 open Misc
-open Clambda
+open Ctypedlambda
 
 type error =
     Not_a_unit_info of string
   | Corrupted_unit_info of string
   | Illegal_renaming of string * string
+
 
 exception Error of error
 
@@ -33,17 +35,33 @@ exception Error of error
         points)
      - list of currying functions and application functions needed
    The .cmx file contains these infos (as an externed record) plus a CRC
-   of these infos *)
+   of these infos
+
+For COM+, I add :
+    - name of the class for the unit
+    - ----------------- for imported units
+*)
 
 type unit_infos =
   { mutable ui_name: string;                    (* Name of unit implemented *)
     mutable ui_defines: string list;      (* Unit and sub-units implemented *)
     mutable ui_imports_cmi: (string * Digest.t) list; (* Interfaces imported *)
-    mutable ui_imports_cmx: (string * Digest.t) list; (* Infos imported *)
+    mutable ui_imports_cmx: (string * Il.typeref * Digest.t) list; (* Infos imported *)
     mutable ui_approx: value_approximation;     (* Approx of the structure *)
     mutable ui_curry_fun: int list;             (* Currying functions needed *)
     mutable ui_apply_fun: int list;             (* Apply functions needed *)
-    mutable ui_force_link: bool }               (* Always linked *)
+    mutable ui_force_link: bool;                (* Always linked *)
+    mutable ui_class: Il.typeref;              (* IL class name *)
+    mutable ui_compilationmode: Clflags.compmode;            
+(*    mutable ui_nb_const_ctr: int; *)
+  }
+
+let nothing = fun (oc:out_channel) -> ()
+let appending_tocmx_fun = ref nothing
+
+let set_appending_tocmx_fun f = 
+  appending_tocmx_fun := f
+
 
 (* Each .a library has a matching .cmxa file that provides the following
    infos on the library: *)
@@ -64,7 +82,14 @@ let current_unit =
     ui_approx = Value_unknown;
     ui_curry_fun = [];
     ui_apply_fun = [];
-    ui_force_link = false }
+    ui_force_link = false;
+    ui_class = Ilbuild.type_ref "" "" ;
+    ui_compilationmode = !Clflags.compilation_mode;
+(*    ui_nb_const_ctr=0 *)
+}
+
+(* AJOUT RAF pour ce qui echappait au link *)
+let current_unit_addit = ref ([] : string list)
 
 let reset name =
   Hashtbl.clear global_approx_table;
@@ -74,10 +99,20 @@ let reset name =
   current_unit.ui_imports_cmx <- [];
   current_unit.ui_curry_fun <- [];
   current_unit.ui_apply_fun <- [];
-  current_unit.ui_force_link <- false
+  current_unit.ui_force_link <- false;
+  current_unit.ui_class <- Ilbuild.type_ref "" "";
+  current_unit.ui_compilationmode <- !Clflags.compilation_mode;
+(*  current_unit.ui_nb_const_ctr <- 0; *)
+  (* AJOUT RAF *)
+  current_unit_addit := []
+
 
 let current_unit_name () =
   current_unit.ui_name
+
+let _ = 
+  Utils.current_unit_name := current_unit_name
+
 
 let read_unit_info filename =
   let ic = open_in_bin filename in
@@ -96,6 +131,18 @@ let read_unit_info filename =
     close_in ic;
     raise(Error(Corrupted_unit_info(filename)))
 
+
+let skip_header_unit_info ic filename = (* pour un fichier deja verifie *)
+  try
+    let buffer = String.create (String.length cmx_magic_number) in
+      really_input ic buffer 0 (String.length cmx_magic_number);
+      ignore (input_value ic : unit_infos);
+      ignore (Digest.input ic)
+  with End_of_file | Failure _ ->
+    close_in ic;
+    raise(Error(Corrupted_unit_info(filename)))
+
+
 (* Return the approximation of a global identifier *)
 
 let cmx_not_found_crc =
@@ -109,18 +156,18 @@ let global_approx global_ident =
     try
       Hashtbl.find global_approx_table modname
     with Not_found ->
-      let (approx, crc) =
+      let (approx, cname, crc) =
         try
           let filename =
             find_in_path_uncap !load_path (modname ^ ".cmx") in
           let (ui, crc) = read_unit_info filename in
           if ui.ui_name <> modname then
             raise(Error(Illegal_renaming(ui.ui_name, filename)));
-          (ui.ui_approx, crc)
+          (ui.ui_approx, ui.ui_class, crc)
         with Not_found ->
-          (Value_unknown, cmx_not_found_crc) in
+          (Value_unknown, Ilbuild.type_ref "" "" , cmx_not_found_crc) in
       current_unit.ui_imports_cmx <-
-        (modname, crc) :: current_unit.ui_imports_cmx;
+        (modname, cname, crc) :: current_unit.ui_imports_cmx;
       Hashtbl.add global_approx_table modname approx;
       approx
   end
@@ -143,17 +190,24 @@ let need_apply_fun n =
 (* Write the description of the current unit *)
 
 let write_unit_info info filename =
+  (*MOD*)
+  current_unit.ui_imports_cmi <- Env.imported_units();
   let oc = open_out_bin filename in
   output_string oc cmx_magic_number;
-  output_value oc info;
+    (*MOD*)
+    current_unit.ui_compilationmode <- !Clflags.compilation_mode;
+    output_value oc current_unit;
   flush oc;
   let crc = Digest.file filename in
   Digest.output oc crc;
+      !appending_tocmx_fun oc;
+	  appending_tocmx_fun := nothing;
   close_out oc
 
 let save_unit_info filename =
   current_unit.ui_imports_cmi <- Env.imported_units();
-  write_unit_info current_unit filename
+  write_unit_info current_unit filename;
+  
 
 (* Error report *)
 
@@ -167,3 +221,10 @@ let report_error ppf = function
   | Illegal_renaming(modname, filename) ->
       fprintf ppf "%s@ contains the description for unit@ %s" filename modname
 
+let get_current_unit () = current_unit
+
+
+let init_toplevel () = 
+  current_unit.ui_imports_cmx <- ("Toploop",Ilbuild.type_ref "Toploop" "Top","") ::current_unit.ui_imports_cmx 
+      
+      

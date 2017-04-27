@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: asmlink.ml,v 1.57 2002/07/22 08:07:26 xleroy Exp $ *)
+(* $Id: asmlink.ml,v 1.5 2005/01/11 08:49:58 montela Exp $ *)
 
 (* Link a set of .cmx/.o files and produce an executable *)
 
@@ -28,6 +28,10 @@ type error =
   | Assembler_error of string
   | Linking_error
   | Multiple_definition of string * string * string
+(* New for CAMIL *)
+  | Inconsistent_compilation_modes of string*Clflags.compmode*Clflags.compmode
+
+
 
 exception Error of error
 
@@ -36,7 +40,7 @@ exception Error of error
 let crc_interfaces =
       (Hashtbl.create 17 : (string, string * Digest.t) Hashtbl.t)
 let crc_implementations =
-      (Hashtbl.create 17 : (string, string * Digest.t) Hashtbl.t)
+      (Hashtbl.create 17 : (string, string * Il.typeref * Digest.t) Hashtbl.t)
 
 let check_consistency file_name unit crc =
   List.iter
@@ -55,27 +59,32 @@ let check_consistency file_name unit crc =
       end)
     unit.ui_imports_cmi;
   List.iter
-    (fun (name, crc) ->
+    (fun (name, id   (*MOD*), crc) ->
       if crc <> cmx_not_found_crc then begin
       try
-        let (auth_name, auth_crc) = Hashtbl.find crc_implementations name in
+        let (auth_name, auth_id, auth_crc) = Hashtbl.find crc_implementations name in
         if crc <> auth_crc then
           raise(Error(Inconsistent_implementation(name, file_name, auth_name)))
       with Not_found ->
-        Hashtbl.add crc_implementations name (file_name, crc)
+        Hashtbl.add crc_implementations name (file_name, id , crc)
       end)
     unit.ui_imports_cmx;
   try
-    let (name, crc) = Hashtbl.find crc_implementations unit.ui_name in
+    let (name, id, crc) = Hashtbl.find crc_implementations unit.ui_name in
     raise (Error(Multiple_definition(unit.ui_name, file_name, name)))
   with Not_found ->
-    Hashtbl.add crc_implementations unit.ui_name (file_name, crc)
+    Hashtbl.add crc_implementations unit.ui_name (file_name, unit.ui_class, crc)
 
 let extract_crcs table =
   Hashtbl.fold (fun name (file_name, crc) accu -> (name, crc) :: accu)
                table []
 let extract_crc_interfaces () = extract_crcs crc_interfaces
-let extract_crc_implementations () = extract_crcs crc_implementations
+(*let extract_crc_implementations () = extract_crcs crc_implementations
+*)
+(*MOD*)
+let extract_crc_implementations ()  = 
+  Hashtbl.fold (fun name (file_name, id, crc) accu -> (name, id, crc) :: accu)
+               crc_implementations []
 
 (* Add C objects and options and "custom" info from a library descriptor.
    See bytecomp/bytelink.ml for comments on the order of C objects. *)
@@ -97,7 +106,7 @@ let is_required name =
   try ignore (Hashtbl.find missing_globals name); true
   with Not_found -> false
 
-let add_required by (name, crc) =
+let add_required by (name, _, crc) =
   try
     let rq = Hashtbl.find missing_globals name in
     rq := by :: !rq
@@ -162,6 +171,7 @@ module IntSet = Set.Make(
     let compare = compare
   end)
 
+(*
 let make_startup_file ppf filename units_list =
   let compile_phrase p = Asmgen.compile_phrase ppf p in
   let oc = open_out filename in
@@ -208,7 +218,7 @@ let make_startup_file ppf filename units_list =
     (Cmmgen.frame_table("startup" :: "system" :: name_list));
   Emit.end_assembly();
   close_out oc
-
+*)
 let call_linker file_list startup_file output_name =
   let libname =
     if !Clflags.gprofile
@@ -283,6 +293,8 @@ let object_file_name name =
 
 (* Main entry point *)
 
+(*
+
 let link ppf objfiles output_name =
   let stdlib =
     if !Clflags.gprofile then "stdlib.p.cmxa" else "stdlib.cmxa" in
@@ -315,7 +327,7 @@ let link ppf objfiles output_name =
   with x ->
     remove_file startup_obj;
     raise x
-
+*)
 (* Error report *)
 
 open Format
@@ -352,8 +364,15 @@ let report_error ppf = function
   | Assembler_error file ->
       fprintf ppf "Error while assembling %s" file
   | Linking_error ->
-      fprintf ppf "Error during linking"
+      fprintf ppf "CamIL link error"
   | Multiple_definition(modname, file1, file2) ->
       fprintf ppf
         "@[<hov>Files %s@ and %s@ both define a module named %s@]"
         file1 file2 modname
+  | Inconsistent_compilation_modes (name,referred_compmode,current_compmode) ->
+      let prettycompmode = function
+	| Clflags.PlainIL -> "plainIL"
+	| Clflags.MarshalledIL -> "marshalledIL" 
+      in
+	fprintf ppf "Inconsistency between compilation mode: %s@ and referred unit %s (%s).@ " 
+	  (prettycompmode current_compmode) name (prettycompmode referred_compmode)

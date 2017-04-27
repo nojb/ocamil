@@ -10,15 +10,51 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: clambda.mli,v 1.15 2001/02/19 20:15:36 maranget Exp $ *)
+(* $Id: clambda.mli,v 1.24 2006/02/01 14:44:55 montela Exp $ *)
 
 (* A variant of the "lambda" code with direct / indirect calls explicit
    and closures explicit too *)
 
 open Asttypes
 open Lambda
+open Typedlambda
 
-type function_label = string
+type namedtype = {nt_ext:bool;nt_path:string list}
+
+type typeinfo =
+  | TIint | TIchar | TIint32 | TIint64 | TInint |  TIbool 
+  | TIunit  | TIvoid
+  | TIfloat | TIstring
+  | TIgenclosure | TIsharedclosure 
+  | TIobject | TIpureIL of Il.typeref
+  | TIdontknow | TInotimplemented of string
+  | TIarrow of typeinfo list * typeinfo (* args -> res *)
+  | TIarray of typeinfo
+
+  | TIblock
+
+  | TIexception (*of string * typeinfo list*)
+  | TIlist of typeinfo
+  | TIoption of typeinfo
+  | TIrecord of namedtype
+  | TIvariant of namedtype
+  | TItuple of typeinfo list
+  | TIlazy of typeinfo 
+
+(*   | TIclosure of Il.typeref *)
+(* objets, variants polymorphes ... *)
+(* format, lazy_t *)
+
+(* COM+ : function_labels include more information about 
+          the nature of imported/exported direct call site *) 
+type complus = 
+  { ilns: Il.nsid ;          (* COM+ namespace *)
+    ilname: Il.id ;              (* COM+ name *)
+    ilrt: Il.elementType ;             (* COM+ return type *)
+    ilsig : Il.signature ;       (* COM+ signature *)
+  }
+
+type function_label = { opt: string; mutable funtype:typeinfo; mutable ilinfo: complus option } 
 
 type ulambda =
     Uvar of Ident.t
@@ -64,3 +100,10 @@ type value_approximation =
   | Value_unknown
   | Value_integer of int
   | Value_constptr of int
+
+
+val print_namedtype_path : namedtype -> string
+val typeinfo_to_string : typeinfo -> string
+
+
+

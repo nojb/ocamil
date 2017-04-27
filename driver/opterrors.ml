@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: opterrors.ml,v 1.16 2002/02/08 16:55:43 xleroy Exp $ *)
+(* $Id: opterrors.ml,v 1.2 2003/09/16 14:02:33 montela Exp $ *)
 
 (* WARNING: if you change something in this file, you must look at
    errors.ml to see if you need to make the same changes there.
@@ -50,14 +50,14 @@ let report_error ppf exn =
       Location.print ppf loc; Translcore.report_error ppf err
   | Compilenv.Error code ->
       Compilenv.report_error ppf code
-  | Asmgen.Error code ->
-      Asmgen.report_error ppf code
+(*  | Asmgen.Error code ->
+      Asmgen.report_error ppf code *)
   | Asmlink.Error code ->
       Asmlink.report_error ppf code
-  | Asmlibrarian.Error code ->
+(*  | Asmlibrarian.Error code ->
       Asmlibrarian.report_error ppf code
   | Asmpackager.Error code ->
-      Asmpackager.report_error ppf code
+      Asmpackager.report_error ppf code *)
   | Sys_error msg ->
       fprintf ppf "I/O error: %s" msg
   | Typeclass.Error(loc, err) ->

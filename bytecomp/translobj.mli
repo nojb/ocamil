@@ -10,11 +10,11 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: translobj.mli,v 1.4 1999/11/17 18:57:03 xleroy Exp $ *)
+(* $Id: translobj.mli,v 1.1 2004/07/28 13:02:24 montela Exp $ *)
 
-val oo_prim: string -> Lambda.lambda
+val oo_prim: string -> Typedlambda.typedlambda
 
 val meth: string -> Ident.t
 
 val reset_labels: unit -> unit
-val transl_label_init: Lambda.lambda -> Lambda.lambda
+val transl_label_init: Typedlambda.typedlambda -> Typedlambda.typedlambda

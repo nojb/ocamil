@@ -12,7 +12,7 @@
 
 /* Based on public-domain code from Berkeley Yacc */
 
-/* $Id: output.c,v 1.13 2001/11/05 13:34:42 xleroy Exp $ */
+/* $Id: output.c,v 1.1 2004/05/21 09:19:41 montela Exp $ */
 
 #include "defs.h"
 
@@ -756,12 +756,20 @@ void output_transl(void)
     if (symbol_true_token[i] && symbol_tag[i] == NULL) {
       fprintf(code_file, "  %3d (* %s *);\n", symbol_value[i], symbol_name[i]);
     }
+    // Modif Camil
+    else if (symbol_true_token[i] && symbol_tag[i] != NULL) {
+      fprintf(code_file, "  %3d (* %s *);\n", (-666), "Decalage types sommes CamIL");
+    }
   }
   fprintf(code_file, "    0|]\n\n");
   fprintf(code_file, "let yytransl_block = [|\n");
   for (i = 0; i < ntokens; i++) {
     if (symbol_true_token[i] && symbol_tag[i] != NULL) {
       fprintf(code_file, "  %3d (* %s *);\n", symbol_value[i], symbol_name[i]);
+    }
+    // Modif Camil
+    else if (symbol_true_token[i] && symbol_tag[i] == NULL) {
+      fprintf(code_file, "  %3d (* %s *);\n", (-666), "Decalage types sommes CamIL");
     }
   }
   fprintf(code_file, "    0|]\n\n");

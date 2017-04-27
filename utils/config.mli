@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: config.mli,v 1.30 2002/07/23 14:12:02 doligez Exp $ *)
+(* $Id: config.mli,v 1.3 2006/11/08 15:08:33 montela Exp $ *)
 
 (* System configuration *)
 
@@ -19,8 +19,6 @@ val version: string
 
 val standard_library: string
         (* The directory containing the standard libraries *)
-val standard_runtime: string
-        (* The full path to the standard bytecode interpreter ocamlrun *)
 val ccomp_type: string
         (* The "kind" of the C compiler: one of
                "cc" (for Unix-style C compilers)
@@ -102,3 +100,9 @@ val ext_dll: string
 val default_executable_name: string
         (* Name of executable produced by linking if none is given with -o,
            e.g. [a.out] under Unix. *)
+
+(* AJOUTS CamIL *)
+
+val camil_core_fullpath : string
+val camil_bindir : string
+val bootstrap : bool

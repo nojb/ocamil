@@ -1,0 +1,605 @@
+(************************************************************************)
+(*                                                                      *)
+(*                                CamIL                                 *)
+(*                                                                      *)
+(* created by  Bruno Pagano, projet Cristal, INRIA Rocquencourt (2000)  *)
+(* modified by Emmanuel Chailloux & Raphael Montelatici, PPS (2003-2006)*)
+(*                                                                      *)
+(************************************************************************)
+
+(* pretty-print of il values to generate an IL assembly file *)
+
+open Utils
+open Il
+open Ilpath
+open Reflection
+
+(* pretty-print of attributes *)
+
+let classattr = function 
+    CAabstract        -> failwith "abstract"
+  | CAansi            -> failwith "ansi"
+  | CAauto            -> failwith "auto"
+  | CAautochar        -> failwith "autochar"
+  | CAexplicit        -> failwith "explicit"
+  | CAinterface       -> failwith "interface"
+  | CApublic          -> failwith "public"
+  | CAsealed          -> failwith "sealed"
+  | CAsequential      -> failwith "sequential"
+  | CAunicode         -> failwith "unicode"
+  | CArtspecialname   -> failwith "rtspecialname"
+  | CAspecialname     -> failwith "specialname"
+  | CAserializable    -> failwith "serializable"
+  | CAbeforefieldinit -> failwith "beforefieldinit"
+  | CAprivate         -> failwith "private"
+  | CAnestedpublic    -> failwith "nested public"
+  | CAnestedprivate   -> failwith "nested private"
+  | CAnestedfamorassem-> failwith "nested famorassem"
+  | CAnestedfamily    -> failwith "nested family"
+  | CAnestedfamandassem-> failwith "nested famandassem"
+  | CAnestedassembly  -> failwith "nested assembly"
+
+let fieldattribute = function 
+    FAassembly      -> RFAAssembly
+  | FAfamandassem   -> failwith "amandassem"
+  | FAfamily        -> failwith "family"
+  | FAfamorassem    -> failwith "famorassem"
+  | FAinitonly      -> RFAInitonly
+  | FAliteral       -> failwith "literal"
+  | FAnotserialized -> failwith "notserialized"
+  | FApinvokeimpl   -> failwith "pinvokeimpl"
+  | FAprivate       -> RFAPrivate
+  | FApublic        -> RFAPublic
+  | FAstatic        -> RFAStatic
+  | FArtspecialname -> failwith "rtspecialname"
+  | FAspecialname   -> failwith "specialname"
+  | FAhasfieldRVA   -> failwith "hasfieldRVA"
+  | FAhasdefault    -> failwith "hasdefault"
+  | FAhasfieldmarshal -> failwith "hasfieldmarshal"
+
+let methodattribute = function 
+    MAabstract      -> RMAAbstract
+  | MAassembly      -> RMAAssembly
+  | MAfamandassem   -> failwith "famandassem"
+  | MAfamily        -> failwith "family"
+  | MAfamorassem    -> failwith "famorassem"
+  | MAfinal         -> RMAFinal
+  | MAhidebysig     -> failwith "hidebysig"
+  | MAprivate       -> RMAPublic (* TODO: handle private properly *)
+  | MApublic        -> RMAPublic
+  | MArtspecialname -> RMARTSpecialname
+  | MAspecialname   -> RMASpecialname
+  | MAstatic        -> RMAStatic
+  | MAvirtual       -> RMAVirtual
+  | MArequiresecobject -> failwith "requiresecobject"
+  | MAhassecurity -> failwith "hassecurity"
+  | MApinvokeimpl -> failwith "pinvoke"
+
+let callconv = function 
+    Instance -> RCCHasThis
+  | NoInstance -> RCCStandard
+
+let implementattribute = function
+    IAil           -> failwith "il"
+  | IAmanaged      -> failwith "managed"
+  | IAnative       -> failwith "native"
+  | IAoptil        -> failwith "optil"
+  | IAruntime      -> failwith "runtime"
+  | IAunmanaged    -> failwith "unmanaged"
+  | IAforwardref   -> failwith "forwardref"
+  | IApreservesig  -> failwith "preservesig"
+  | IAsynchronized -> failwith "synchronized"
+  | IAnoinlining   -> failwith "noinlining"
+
+(* ident, qualified name, etc... *)
+
+let replace_carret s =
+  for i=0 to (String.length s)-1 do
+    if s.[i]='^' then s.[i]<-'$'
+  done
+
+let convert_toplevel_qname qname = (* Rem: qname must be dequoted *)
+  try 
+    (* chop off the prefix for algebraic types only: skip class Top and closures *)
+    let i = String.index qname '.' in 
+    let prefix = String.sub qname 0 (i-1) in
+      if (String.length prefix) >= 7 && (String.sub prefix 0 7) = "Temptop" then
+	let suffix = String.sub qname (i+1) ((String.length qname)-i-1) in
+	  if ((String.length suffix) >= 3 && (String.sub suffix 0 3) = "Top")
+	    || ((String.length suffix) >= 8 && (String.sub suffix 0 8) = "closures") then qname else suffix
+      else qname
+  with Not_found -> qname
+
+(* TODO: get rid of quote/dequote *)
+
+let assembly_qualified_classname id = 
+  replace_carret id.trnme; (* for instance because of Pervasives.(^) *)
+  let qid = if id.trnsp="" then id.trnme else (id.trnsp^"."^id.trnme) in
+  let assref = match id.trscp with 
+    | UnknownAssembly -> "????"
+    | ThisAssembly -> ""
+    | ExternalAssembly assref -> assref.arnme
+  in (assref,qid)
+    
+let assembly_qualified_fieldname id =
+  let aref,qid = assembly_qualified_classname id.frcla in
+    (aref,qid^"::"^id.frnme)
+
+let assembly_qualified_methodname id =
+  let aref,qid = assembly_qualified_classname id.mrcla in
+    (aref,qid^"::"^id.mrnme)
+
+(* types *)
+
+let transient_types = (Hashtbl.create 50 :(string,cType) Hashtbl.t)
+let transient_fields = (Hashtbl.create 50 :(string,cFieldInfo) Hashtbl.t)
+let transient_methods = (Hashtbl.create 50 :(string,cMethodInfo) Hashtbl.t)
+let transient_constructors = (Hashtbl.create 50 :(string,cConstructorInfo) Hashtbl.t)
+
+let find_transient_type name =
+  let name = if !Clflags.toplevel_mode then (* remove TemporaryModule prefix for algebraic types *)
+      convert_toplevel_qname name
+    else name in
+    try Hashtbl.find transient_types name 
+    with Not_found -> 
+      Hashtbl.iter (fun k o -> print_string (k^" ")) transient_types;
+      failwith ("Transient type "^name^" not found (table dumped above).")
+	
+let find_transient_field name =
+  let name = if !Clflags.toplevel_mode then (* remove TemporaryModule prefix for algebraic types *)
+      convert_toplevel_qname name
+    else name in
+    try Hashtbl.find transient_fields name 
+    with Not_found ->     
+      Hashtbl.iter (fun k o -> print_string (k^" ")) transient_fields;
+      failwith ("Transient field "^name^" not found (table dumped above).")
+
+let find_transient_method name =
+  let name = if !Clflags.toplevel_mode then (* remove TemporaryModule prefix for algebraic types *)
+      convert_toplevel_qname name
+    else name in
+    try Hashtbl.find transient_methods name 
+    with Not_found -> 
+      Hashtbl.iter (fun k o -> print_string (k^" ")) transient_methods;
+      failwith ("Transient method "^name^" not found (table dumped above).")
+
+let find_transient_constructor name arity =
+  let name = if !Clflags.toplevel_mode then (* remove TemporaryModule prefix for algebraic types *)
+      convert_toplevel_qname name
+    else name in
+    try Hashtbl.find transient_constructors (name ^ "$" ^ (string_of_int arity))
+    with Not_found -> 
+      Hashtbl.iter (fun k o -> print_string (k^" ")) transient_constructors;
+      failwith ("Transient constructor "^name^" not found (table dumped above).")
+	
+
+let growing_assembly = ref None
+
+let resolve_classtype ?(search_transients=true) id = 
+  let assref,qid = assembly_qualified_classname id in
+    if assref = "" then (* either mscorlib class or transient type, the latter to be searched in the hashtable *)
+      try type__get_type (qid^",mscorlib")
+      with CtsHierarchy.Null_object _ -> 
+	if search_transients then find_transient_type qid else raise Not_found
+    else 
+      begin
+	if !Clflags.toplevel_mode && (String.length assref)>=7 && (String.sub assref 0 7)="temptop" then
+	  begin (* type defined during the toplevel session *)
+	    if !growing_assembly <> None then
+	      let assembly,_ = Utils.someof !growing_assembly in
+		try assembly#get_type qid
+		with CtsHierarchy.Null_object _ ->
+		  (* types can be defined in the same toplevel phrase they are referenced from: for exemple in module definitions *)
+		  (* in this cas they are transient, not part of the growing assembly yet *)
+		  if search_transients then find_transient_type qid else raise Not_found
+	    else (* same situation (transient type), but in the first phrase of the assembly *)
+	      if search_transients then find_transient_type qid else raise Not_found
+	  end
+	else
+	  let assembly_object = (Obj.magic Ilpath.get_assembly_object assref : _cts_cAssembly) in
+	  let assembly = new _capsule_cAssembly assembly_object in
+	    assembly#get_type qid
+      end
+
+let objtype = type__get_type "System.Object"
+let stringtype = type__get_type "System.String"
+let chartype = type__get_type "System.Char"
+let voidtype = type__get_type "System.Void"
+let booltype = type__get_type "System.Boolean"
+let int8type = type__get_type "System.SByte"
+let int16type = type__get_type "System.Int16"
+let int32type = type__get_type "System.Int32"
+let int64type = type__get_type "System.Int64"
+let float32type = type__get_type "System.Single"
+let float64type = type__get_type "System.Double"
+let uint8type = type__get_type "System.Byte"
+let uint16type = type__get_type "System.UInt16"
+let uint32type = type__get_type "System.UInt32"
+let uint64type = type__get_type "System.UInt64"
+let ninttype = type__get_type "System.IntPtr"
+let nuinttype = type__get_type "System.UIntPtr"
+let sysexceptiontype = type__get_type "System.Exception"
+let camilexceptiontype =
+  if !Clflags.nopervasives || !Clflags.no_std_include then failwith "Cannot use dynemit when compiling camil core library"
+  else
+    let camil_assembly_object = (Obj.magic Ilpath.get_assembly_object Naming.core_camil_assbly : _cts_cAssembly) in
+    let camil_assembly = new _capsule_cAssembly camil_assembly_object in
+      camil_assembly#get_type "CamIL.Exception"
+
+let rec iltype = function 
+    Tclass n -> resolve_classtype n 
+  | Tobject  -> objtype
+  | Tstring  -> stringtype
+  | Tvaluetype n -> resolve_classtype n
+  | Tvector t -> 
+      let basetyperef = (iltype t)#get_assembly_qualified_name() in
+      let commapos = String.index basetyperef ',' in
+      let arraytyperef = (String.sub basetyperef 0 commapos) ^ "[]" ^ (String.sub basetyperef commapos ((String.length basetyperef)-commapos)) in
+	type__get_type arraytyperef
+ (* TODO with .NET2.0: use v2.0 Type.MakeArrayType because the current solution doesn't work on transient types *)
+
+  | Tampersand t -> assert false;type__get_type (((iltype t)#get_assembly_qualified_name())^"&") (* idem Type.MakeByRefType *)
+  | Tstar t  -> assert false;type__get_type (((iltype t)#get_assembly_qualified_name())^"*") (* idem Type.MakePointerType *)
+  | Tchar    -> chartype
+  | Tvoid    -> voidtype
+  | Tbool    -> booltype
+  | Tint8    -> int8type
+  | Tint16   -> int16type
+  | Tint32   -> int32type
+  | Tint64   -> int64type
+  | Tfloat32 -> float32type
+  | Tfloat64 -> float64type
+  | Tuint8   -> uint8type
+  | Tuint16  -> uint16type
+  | Tuint32  -> uint32type
+  | Tuint64  -> uint64type
+  | Tnint    -> ninttype
+  | Tnuint   -> nuinttype
+
+let iltyperef_spec = function
+    TypeRef tr -> resolve_classtype tr
+  | TypeSpec t -> iltype t
+
+let variable = function (t,_) -> iltype t
+
+let signature vl = 
+  let varr = Array.of_list vl in
+  let nbargs = Array.length varr in
+  let targs = _new_cArray_cType nbargs in
+    Array.iteri (fun i v -> targs#set i (variable v)) varr;
+    targs
+
+let resolve_field id = 
+  try
+    let classtype = resolve_classtype ~search_transients:false id.frcla in
+    let fieldtype = iltype id.frsig in
+      classtype#get_field id.frnme
+  with Not_found -> (* is a transient field *)
+    let assref,qid = assembly_qualified_fieldname id in    
+      find_transient_field qid
+
+let resolve_method id = 
+  try
+    let classtype = resolve_classtype ~search_transients:false id.mrcla in
+    let targs = signature id.mrprm in
+      classtype#get_method id.mrnme targs
+  with Not_found -> (* is a transient field *)
+    let assref,qid = assembly_qualified_methodname id in
+      find_transient_method qid
+    | _ -> failwith ("Unresolved method "^id.mrnme)
+
+let resolve_constructor id = 
+  try
+    let classtype = resolve_classtype ~search_transients:false id.mrcla in
+    let targs = signature id.mrprm in
+      classtype#get_constructor targs
+  with Not_found -> (* is a transient field *)
+    let assref,qid = assembly_qualified_methodname id in
+      find_transient_constructor qid (List.length id.mrprm)
+
+
+(* instructions *)
+
+let opt_ldarg ilgen = function 
+  | 0 -> ilgen#emit (get_opcodes__ldarg_0())
+  | 1 -> ilgen#emit (get_opcodes__ldarg_1())
+  | 2 -> ilgen#emit (get_opcodes__ldarg_2())
+  | 3 -> ilgen#emit (get_opcodes__ldarg_3())
+  | n when n < 256 -> ilgen#emit_byte (get_opcodes__ldarg_s()) n
+  | n -> ilgen#emit_short (get_opcodes__ldarg()) n
+
+let opt_starg ilgen = function 
+  | n when n < 256 -> ilgen#emit_byte (get_opcodes__starg_s()) n
+  | n -> ilgen#emit_short (get_opcodes__starg()) n
+
+let opt_ldci4 ilgen = function 
+  | -1 -> ilgen#emit (get_opcodes__ldci4_m1())
+  | 0 -> ilgen#emit (get_opcodes__ldci4_0())
+  | 1 -> ilgen#emit (get_opcodes__ldci4_1())
+  | 2 -> ilgen#emit (get_opcodes__ldci4_2())
+  | 3 -> ilgen#emit (get_opcodes__ldci4_3())
+  | 4 -> ilgen#emit (get_opcodes__ldci4_4())
+  | 5 -> ilgen#emit (get_opcodes__ldci4_5())
+  | 6 -> ilgen#emit (get_opcodes__ldci4_6())
+  | 7 -> ilgen#emit (get_opcodes__ldci4_7())
+  | 8 -> ilgen#emit (get_opcodes__ldci4_8())
+  | n when n>=(-128) && n<=127 -> ilgen#emit_byte (get_opcodes__ldci4_s()) n
+  | n -> ilgen#emit_int (get_opcodes__ldci4()) n
+
+let opt_ldloc ilgen = function 
+  | 0 -> ilgen#emit (get_opcodes__ldloc_0())
+  | 1 -> ilgen#emit (get_opcodes__ldloc_1())
+  | 2 -> ilgen#emit (get_opcodes__ldloc_2())
+  | 3 -> ilgen#emit (get_opcodes__ldloc_3())
+  | n when n < 256 -> ilgen#emit_byte (get_opcodes__ldloc_s()) n
+  | n -> ilgen#emit_short (get_opcodes__ldloc()) n
+
+let opt_stloc ilgen = function 
+  | 0 -> ilgen#emit (get_opcodes__stloc_0())
+  | 1 -> ilgen#emit (get_opcodes__stloc_1())
+  | 2 -> ilgen#emit (get_opcodes__stloc_2())
+  | 3 -> ilgen#emit (get_opcodes__stloc_3())
+  | n when n < 256 -> ilgen#emit_byte (get_opcodes__stloc_s()) n
+  | n -> ilgen#emit_short (get_opcodes__stloc()) n
+
+type handlerdesc = {
+  mutable handlers: handlerdesc list;
+  mutable exitlbl: string;
+}
+
+let rec display_handler h =
+  let s = ref "" in
+    List.iter (fun h -> s:= !s^(display_handler h)^" ") h.handlers;
+    "[" ^ !s ^ "]("^h.exitlbl^")"
+
+
+let rec build_handlerdesc ilgen current cleaned_il labels = function
+    [] -> 
+      current.handlers <- List.rev current.handlers;
+      [], List.rev cleaned_il, labels
+  | Itry_main::q -> 
+      let subhandler = {handlers=[];exitlbl=""} in
+      let remainder,cleaned_il2,labels2 = build_handlerdesc ilgen subhandler (Itry_main::cleaned_il) labels q in
+	current.handlers <- subhandler::current.handlers;
+	build_handlerdesc ilgen current cleaned_il2 labels2 remainder
+  | Itry_end::(Ilabel s::q) -> 
+      current.exitlbl <- s;
+      current.handlers <- List.rev current.handlers;
+      q, (Itry_end::cleaned_il), labels (* remove Lbl from cleaned il *)
+  | Itry_end::q -> 
+      current.handlers <- List.rev current.handlers;
+      q, (Itry_end::cleaned_il), labels
+  | (Ilabel s as x)::q -> build_handlerdesc ilgen current (x::cleaned_il) ((s,ilgen#define_label())::labels) q (* collect label *)
+  | x::q -> build_handlerdesc ilgen current (x::cleaned_il)labels q
+
+let code ilgen il = 
+  let handlerdesc = {handlers=[];exitlbl=""}  in
+  let _,il,labels = build_handlerdesc ilgen handlerdesc [] [] il in
+    if !Clflags.verbose then print_endline (display_handler handlerdesc);
+    let handlers_stack = ref [handlerdesc,None] in
+    let is_subst_label s = match !handlers_stack with 
+	({exitlbl=s2},Some lbl)::_ when s = s2 -> true
+      | _ -> false in
+    let fetch_label s = match !handlers_stack with 
+	({exitlbl=s2},Some lbl)::_ when s = s2 -> lbl
+      | _ -> List.assoc s labels in
+    let instruction ilgen il nextil = match il with
+	Icomment s       -> () 
+      | Ilabel s         -> ilgen#mark_label (fetch_label s)
+      | Itry_main        -> 
+	  let autolabel  = ilgen#begin_exception_block () in
+	    begin match !handlers_stack with
+	      | ({handlers=next_handler::other_handlers;exitlbl=el},lbl)::q ->
+		  handlers_stack := (next_handler,Some autolabel)::(({handlers=other_handlers;exitlbl=el},lbl)::q)
+	      | _ -> assert false
+	    end
+      | Itry_catch       -> 
+	  let exception_type = if !Clflags.noILexceptionHandling then camilexceptiontype else sysexceptiontype in
+	    ilgen#begin_catch_block exception_type
+      | Itry_end         -> 
+	  ilgen#end_exception_block();
+	  handlers_stack := List.tl !handlers_stack
+      | Iadd             -> ilgen#emit (get_opcodes__add()) (* TODO: using global variables should speed up compilation time *)
+      | Iand             -> ilgen#emit (get_opcodes__and())
+      | Ibeq s           -> ilgen#emit_label (get_opcodes__beq()) (fetch_label s)
+      | Ibge s           -> ilgen#emit_label (get_opcodes__bge()) (fetch_label s)
+      | Ibgt s           -> ilgen#emit_label (get_opcodes__bgt()) (fetch_label s)
+      | Ible s           -> ilgen#emit_label (get_opcodes__ble()) (fetch_label s)
+      | Iblt s           -> ilgen#emit_label (get_opcodes__blt()) (fetch_label s)
+      | Ibox t           -> ilgen#emit_typed (get_opcodes__box()) (iltyperef_spec t)
+      | Ibr s            -> ilgen#emit_label (get_opcodes__br()) (fetch_label s)
+      | Ibrtrue s        -> ilgen#emit_label (get_opcodes__brtrue()) (fetch_label s)
+      | Ibrzero s        -> ilgen#emit_label (get_opcodes__brfalse()) (fetch_label s)
+      | Icall mref -> 
+	  begin match mref.mrnme with
+	    | ".ctor" | ".cctor" -> ilgen#emit_cstr (get_opcodes__call()) (resolve_constructor mref)
+	    | _ -> ilgen#emit_meth (get_opcodes__call()) (resolve_method mref)
+	  end
+      | Icallvirt mref -> 
+	  begin match mref.mrnme with
+	    | ".ctor" | ".cctor" -> ilgen#emit_cstr (get_opcodes__callvirt()) (resolve_constructor mref)
+	    | _ -> ilgen#emit_meth (get_opcodes__callvirt()) (resolve_method mref)
+	  end
+      | Inewobj mref -> 
+	  ilgen#emit_cstr (get_opcodes__newobj()) (resolve_constructor mref)
+      | Iconvi4          -> ilgen#emit (get_opcodes__convi4())
+      | Iconvi8          -> ilgen#emit (get_opcodes__convi8())
+      | Iconvi           -> ilgen#emit (get_opcodes__convi())
+      | Icastclass t     -> ilgen#emit_typed (get_opcodes__castclass()) (iltyperef_spec t)
+      | Iceq             -> ilgen#emit (get_opcodes__ceq())
+      | Icgt             -> ilgen#emit (get_opcodes__cgt())
+      | Iclt             -> ilgen#emit (get_opcodes__clt())
+      | Icgt_un          -> ilgen#emit (get_opcodes__cgt_un())
+      | Iclt_un          -> ilgen#emit (get_opcodes__clt_un())
+      | Idiv             -> ilgen#emit (get_opcodes__div())
+      | Idup             -> ilgen#emit (get_opcodes__dup())
+      | Ildarg n         -> opt_ldarg ilgen n 
+      | Ildci4 n         -> opt_ldci4 ilgen n 
+      | Ildci8 n         -> ilgen#emit_long (get_opcodes__ldci8()) n
+      | Ildcr8 n         -> ilgen#emit_double (get_opcodes__ldcr8()) n
+      | Ildindi1         -> ilgen#emit (get_opcodes__ldind_i1())
+      | Ildindi2         -> ilgen#emit (get_opcodes__ldind_i2())
+      | Ildindi4         -> ilgen#emit (get_opcodes__ldind_i4())
+      | Ildindi8         -> ilgen#emit (get_opcodes__ldind_i8())
+      | Ildindi          -> ilgen#emit (get_opcodes__ldind_i())
+      | Ildindr8         -> ilgen#emit (get_opcodes__ldind_r8())
+      | Ildelem s        -> begin match s with 
+	  | "ref" -> ilgen#emit (get_opcodes__ldelem_ref())
+	  | "i2" -> ilgen#emit (get_opcodes__ldelem_i2())
+	  | _ -> assert false 
+	end
+      | Ildfld fref      -> ilgen#emit_fld (get_opcodes__ldfld()) (resolve_field fref)
+      | Ildlen           -> ilgen#emit (get_opcodes__ldlen())
+      | Ildloc n         -> opt_ldloc ilgen n
+      | Ildnull          -> ilgen#emit (get_opcodes__ldnull())
+      | Ildsfld fref     -> ilgen#emit_fld (get_opcodes__ldsfld()) (resolve_field fref)
+      | Ildstr s         -> ilgen#emit_str (get_opcodes__ldstr()) s
+      | Ileave s         -> 
+	  begin match nextil with 
+	    | (Itry_end | Itry_catch) when is_subst_label s -> () (* skip leave generation to avoid doubles with the automatic one *)
+	    | _ -> ilgen#emit_label (get_opcodes__leave()) (fetch_label s)
+	  end
+      | Imul             -> ilgen#emit (get_opcodes__mul())
+      | Ineg             -> ilgen#emit (get_opcodes__neg())
+      | Inewarr t        -> ilgen#emit_typed (get_opcodes__newarr()) (iltyperef_spec t) 
+      | Inot             -> ilgen#emit (get_opcodes__not())
+      | Ior              -> ilgen#emit (get_opcodes__or())
+      | Ipop             -> ilgen#emit (get_opcodes__pop())
+      | Irem             -> ilgen#emit (get_opcodes__rem())
+      | Iret             -> ilgen#emit (get_opcodes__ret())
+      | Ishl             -> ilgen#emit (get_opcodes__shl())
+      | Ishr             -> ilgen#emit (get_opcodes__shr())
+      | Ishrun           -> ilgen#emit (get_opcodes__shr_un())
+      | Istelem s        -> begin match s with 
+	  | "ref" -> ilgen#emit (get_opcodes__stelem_ref())
+	  | "i2" -> ilgen#emit (get_opcodes__stelem_i2())
+	  | _ -> assert false 
+	end
+      | Istfld fref      -> ilgen#emit_fld (get_opcodes__stfld()) (resolve_field fref)
+      | Istloc n         -> opt_stloc ilgen n
+      | Istarg n         -> opt_starg ilgen n 
+      | Istsfld fref     -> ilgen#emit_fld (get_opcodes__stsfld()) (resolve_field fref)
+      | Isub             -> ilgen#emit (get_opcodes__sub())
+      | Iswitch lbl      -> 
+	  let larr = Array.of_list lbl in
+	  let nbl = Array.length larr in
+	  let clbls = _new_cArray_cLabel nbl in
+	  let _ = Array.iteri (fun i s -> clbls#set i (fetch_label s)) larr in
+	    ilgen#emit_label_array (get_opcodes__switch()) clbls
+      | Itail            -> ilgen#emit (get_opcodes__tail())
+      | Ithrow           -> ilgen#emit (get_opcodes__throw())
+      | Iunbox t         -> ilgen#emit_typed (get_opcodes__unbox()) (iltyperef_spec t)
+      | Ixor             -> ilgen#emit (get_opcodes__xor())
+      | Iisinst t        -> ilgen#emit_typed (get_opcodes__isinst()) (iltyperef_spec t)
+      | Irethrow         -> ilgen#emit (get_opcodes__rethrow())
+    in
+      List.iter2 (instruction ilgen) il ((List.tl il)@[Icomment ""])
+
+
+let convert_version_format v = (* TODO: remove *)
+  let v2 = String.copy v in
+    for i = 0 to (String.length v2) -1 do
+      if v2.[i] = ':' then v2.[i] <- '.'
+    done;
+    v2
+
+(* structures *)
+
+
+let rec ilcompunit icu fname keypairfile =
+  let abuilder,mbuilder =
+    match !growing_assembly with 
+	Some (ab,mb) when !Clflags.toplevel_mode -> (ab,mb)
+      | _ ->
+	  let icuass = Utils.someof icu.icuass in
+	  let assembly_access = if fname = "" then ABARun else ABASave in
+	  let domain = thread_get_domain () in
+	  let assbyname = new assembly_name () in
+	  let _ = assbyname#set_name icuass.anme in
+	  let version = new assembly_version (convert_version_format icuass.aver) in
+	  let _ = assbyname#set_version version in
+	    (* set strong name, if any *)
+	    if keypairfile <> "" then begin
+		let fs = file__open_read keypairfile in
+		let sn = new strongname_keypair fs in
+		  fs#close();
+		  assbyname#set_keypair sn
+	      end;
+	    
+	    let abuilder = domain#define_dynamic_assembly assbyname assembly_access in
+	      (* set custom attribute *)
+	    let customatt_type = type__get_type "System.Security.AllowPartiallyTrustedCallersAttribute" in
+	    let customatt_ctor = customatt_type#get_constructor (_new_cArray_cType 0) in
+	    let customatt_bldr = new custom_attribute_builder customatt_ctor (_new_cArray_cObject 0) in
+	      abuilder#set_custom_attribute customatt_bldr;
+	      let mbuilder = 
+		if fname = "" then abuilder#define_transient_dynamic_module icuass.amod false 
+		else abuilder#define_dynamic_module icuass.amod fname in
+		if !Clflags.toplevel_mode then growing_assembly := Some (abuilder,mbuilder);
+		abuilder,mbuilder
+  in
+  let entrypoint = ref None in
+    (* in toplevel mode, do not emit MLTop class *)
+  let icuclasses = 
+    if !Clflags.toplevel_mode then List.filter (fun cl -> not (cl.tdnsp="" && cl.tdnme="MLTop")) icu.icutypes 
+    else icu.icutypes in
+  let classes_to_bake = List.map (ilclass entrypoint mbuilder) icuclasses in
+  let type_builders, methods_to_bake = List.split (List.map (fun f -> f()) classes_to_bake) in
+    List.iter (List.iter (fun m -> m())) methods_to_bake;
+	List.iter (fun tp -> let _ = tp#create_type() in ()) type_builders;
+	(match !entrypoint with Some minfo -> abuilder#set_entrypoint minfo | None -> ());
+	if fname <> "" then abuilder#save fname;
+	abuilder
+	
+and ilclass entrypoint mb cl =
+  let qname = (if cl.tdnsp = "" then "" else cl.tdnsp ^ ".") ^ cl.tdnme in
+  let qname = if !Clflags.toplevel_mode then (* remove TemporaryModule prefix for algebraic types *)
+      convert_toplevel_qname qname
+    else qname in
+    if !Clflags.verbose then Printf.printf ">> %s\n" qname;
+    let typebuilder = match cl.tdext with 
+	None -> mb#define_type qname [RTAClass;RTAPublic] 
+      | Some tre ->  mb#define_type_extends qname [RTAClass;RTAPublic] (resolve_classtype tre)
+    in
+      Hashtbl.add transient_types qname (typebuilder :> cType);
+	fun () -> 
+	  begin
+	    List.iter (ilfield typebuilder qname) cl.tdfld;
+	    if !Clflags.verbose then Printf.printf "Creating type %s\n"  cl.tdnme;
+	    let methods_to_bake = List.map (ilmethod entrypoint typebuilder qname) cl.tdmet  in
+	      (typebuilder, methods_to_bake)
+	  end
+	  
+and ilfield tp classqname fd = 
+  let fname = fd.fnme in (* TODO: field names and references are still quoted !*)
+  let fattr = List.map fieldattribute fd.fatt in
+  let vis = List.filter (function RFAAssembly | RFAPublic | RFAPrivate (* the only one to be Jacar'ed *) -> true | _ -> false) fattr in
+  let fattr = if vis = [] then RFAPublic::fattr else fattr in
+  let fieldbuilder = tp#define_field fname (iltype fd.fsig) fattr in
+  Hashtbl.add transient_fields (classqname^"::"^fname) (fieldbuilder :> cFieldInfo)
+
+and ilmethod entrypoint tp classqname m = 
+  let callconv = if List.mem MAstatic m.matt then RCCStandard else RCCHasThis in
+    match m.mnme with
+      | ".ctor" | ".cctor" ->
+	  let ctorbuilder = tp#define_constructor (List.map methodattribute m.matt) callconv (signature m.mprm) in
+	  let _ = Hashtbl.add transient_constructors (classqname ^ "::" ^ m.mnme ^ "$" ^ (string_of_int (List.length m.mprm))) (ctorbuilder :> cConstructorInfo) in
+	  let ilgenerator = ctorbuilder#get_il_generator() in
+	    (fun () -> 
+	       List.iter (fun (t,_) -> ignore (ilgenerator#declare_local (iltype t))) m.locals;
+	       code ilgenerator (List.rev m.minst))
+      | _ ->
+	  let methodbuilder = tp#define_method m.mnme (List.map methodattribute m.matt) callconv (iltype m.mtyp) (signature m.mprm) in
+	  let _ = Hashtbl.add transient_methods (classqname ^ "::" ^ m.mnme) (methodbuilder :> cMethodInfo) in
+	    if m.entrypoint then entrypoint := Some (methodbuilder :> cMethodInfo);
+	    let ilgenerator = methodbuilder#get_il_generator() in
+	      fun () -> 
+		List.iter (fun (t,_) -> ignore (ilgenerator#declare_local (iltype t))) m.locals;
+		code ilgenerator (List.rev m.minst)
+
+ 
+
+
+
+
+

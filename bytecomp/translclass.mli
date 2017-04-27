@@ -10,14 +10,15 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: translclass.mli,v 1.7 2000/03/06 22:11:12 weis Exp $ *)
+(* $Id: translclass.mli,v 1.1 2004/07/28 13:02:24 montela Exp $ *)
 
 open Typedtree
 open Lambda
+open Typedlambda
 
-val class_stub : lambda
+val class_stub : typedlambda
 val transl_class :
-  Ident.t list -> Ident.t -> int -> string list -> class_expr -> lambda;;
+  typedident list -> Ident.t -> int -> string list -> class_expr -> typedlambda;;
 
 type error = Illegal_class_expr
 

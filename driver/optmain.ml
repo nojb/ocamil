@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: optmain.ml,v 1.70 2002/08/01 15:18:01 doligez Exp $ *)
+(* $Id: optmain.ml,v 1.31 2007/03/25 11:24:59 montela Exp $ *)
 
 open Config
 open Clflags
@@ -23,6 +23,7 @@ let process_implementation_file ppf name =
   objfiles := (Misc.chop_extension_if_any name ^ ".cmx") :: !objfiles
 
 let process_file ppf name =
+(*  Il.initialize_assemblyref(); *)
   if Filename.check_suffix name ".ml"
   || Filename.check_suffix name ".mlt" then begin
     Optcompile.implementation ppf name;
@@ -45,7 +46,7 @@ let process_file ppf name =
     raise(Arg.Bad("don't know what to do with " ^ name))
 
 let print_version_and_library () =
-  print_string "The Objective Caml native-code compiler, version ";
+  print_string "The OCamIL compiler for Objective Caml version ";
   print_string Config.version; print_newline();
   print_string "Standard library directory: ";
   print_string Config.standard_library; print_newline();
@@ -68,7 +69,7 @@ let default_output = function
   | Some s -> s
   | None -> Config.default_executable_name
 
-let usage = "Usage: ocamlopt <options> <files>\nOptions are:"
+let usage = "Usage: ocamil <options> <files>\nOptions are:"
 
 let main () =
   native_code := true;
@@ -77,15 +78,15 @@ let main () =
   let ppf = Format.err_formatter in
   try
     Arg.parse [
-       "-a", Arg.Set make_archive, " Build a library";
+(*       "-a", Arg.Set make_archive, " Build a library"; *)
        "-c", Arg.Set compile_only, " Compile only (do not link)";
-       "-cc", Arg.String(fun s -> c_compiler := s; c_linker := s),
+(*       "-cc", Arg.String(fun s -> c_compiler := s; c_linker := s),
              "<comp>  Use <comp> as the C compiler and linker";
        "-cclib", Arg.String(fun s ->
                               ccobjs := Misc.rev_split_words s @ !ccobjs),
              "<opt>  Pass option <opt> to the C linker";
        "-ccopt", Arg.String(fun s -> ccopts := s :: !ccopts),
-             "<opt>  Pass option <opt> to the C compiler and linker";
+             "<opt>  Pass option <opt> to the C compiler and linker"; *)
        "-compact", Arg.Clear optimize_for_speed,
              " Optimize code size rather than speed";
        "-i", Arg.Set print_types, " Print the types";
@@ -102,23 +103,23 @@ let main () =
        "-intf_suffix", Arg.String (fun s -> Config.interface_suffix := s),
              "<file>  (deprecated) same as -intf-suffix";
        "-labels", Arg.Clear classic, " Use commuting label mode";
-       "-linkall", Arg.Set link_everything,
-             " Link all modules, even unused ones";
+(*       "-linkall", Arg.Set link_everything,
+             " Link all modules, even unused ones"; *)
        "-noassert", Arg.Set noassert, " Don't compile assertion checks";
-       "-noautolink", Arg.Set no_auto_link,
-             " Don't automatically link C libraries specified in .cma files";
+(*       "-noautolink", Arg.Set no_auto_link,
+             " Don't automatically link C libraries specified in .cma files"; *)
        "-nolabels", Arg.Set classic, " Ignore non-optional labels in types";
        "-nostdlib", Arg.Set no_std_include,
            " do not add standard directory to the list of include directories";
        "-o", Arg.String(fun s -> output_name := Some s),
              "<file>  Set output file name to <file>";
-       "-output-obj", Arg.Unit(fun () -> output_c_object := true),
-             " Output a C object file instead of an executable";
+(*       "-output-obj", Arg.Unit(fun () -> output_c_object := true),
+             " Output a C object file instead of an executable"; *)
        "-p", Arg.Set gprofile,
              " Compile and link with profiling support for \"gprof\"\n\
                \t(not supported on all platforms)";
-       "-pack", Arg.Set make_package,
-              " Package the given .cmx files into one .cmx";
+(*       "-pack", Arg.Set make_package,
+              " Package the given .cmx files into one .cmx"; *)
        "-pp", Arg.String(fun s -> preprocessor := Some s),
              "<command>  Pipe sources through preprocessor <command>";
        "-principal", Arg.Set principal,
@@ -158,26 +159,49 @@ let main () =
        "-nopervasives", Arg.Set nopervasives, " (undocumented)";
        "-dparsetree", Arg.Set dump_parsetree, " (undocumented)";
        "-drawlambda", Arg.Set dump_rawlambda, " (undocumented)";
+       "-dtrawlambda", Arg.Set dump_trawlambda, " (undocumented)"; (* ajout CamIL *)
        "-dlambda", Arg.Set dump_lambda, " (undocumented)";
-       "-dcmm", Arg.Set dump_cmm, " (undocumented)";
-       "-dsel", Arg.Set dump_selection, " (undocumented)";
-       "-dcombine", Arg.Set dump_combine, " (undocumented)";
-       "-dlive", Arg.Unit(fun () -> dump_live := true;
-                                    Printmach.print_live := true),
-             " (undocumented)";
-       "-dspill", Arg.Set dump_spill, " (undocumented)";
-       "-dsplit", Arg.Set dump_split, " (undocumented)";
-       "-dinterf", Arg.Set dump_interf, " (undocumented)";
-       "-dprefer", Arg.Set dump_prefer, " (undocumented)";
-       "-dalloc", Arg.Set dump_regalloc, " (undocumented)";
-       "-dreload", Arg.Set dump_reload, " (undocumented)";
-       "-dscheduling", Arg.Set dump_scheduling, " (undocumented)";
-       "-dlinear", Arg.Set dump_linear, " (undocumented)";
+       "-dtlambda", Arg.Set dump_tlambda, " (undocumented)"; (* ajout CamIL *)
        "-dstartup", Arg.Set keep_startup_file, " (undocumented)";
+(* ajouts CamIL *)
+       "-dulambda", Arg.Set dump_ulambda, " (undocumented)";
+       "-dtulambda", Arg.Set dump_tulambda, " (undocumented)";
+       "-drtlambda", Arg.Set dump_rtlambda, " (undocumented)";
+       "-dil", Arg.Set dump_il, " (undocumented)";
+       "-inlineIL", Arg.String(fun il -> inlined_il := il :: !inlined_il),
+             "<ilfile>  Inline <ilfile> (undocumented)";
+       "-key", Arg.String (fun s-> snk_file := s), "<snk file> Generate strong name assembly with <snk file> key pair";
+(*       "-ilasm", Arg.String(fun s -> lightning_ilasm := s),
+             "<ilasm>  Use <ilasm> as the ilasm ilassembler";  C'est quoi ca ??? *)
+       "-ildebug", Arg.Set lightning_debug, " IL debug mode";
+       "-peverify", Arg.Set peverify, " call PEVerify";
+       "-ccl", Arg.Set compiling_camil_corelib, " must be set when compiling CamIL core library";
+       "-noCLIexception", Arg.Set noILexceptionHandling, " Disable CLI exception handling";
+       "-strictorder", Arg.Set ocaml_eval_order, " Strictly compliant evaluation order";
+       "-noctropt", Arg.Set noctropt, " (undocumented)";
+       "-plainIL", Arg.Unit (fun () -> compilation_mode := PlainIL), " (undocumented)";
+       "-reflection", Arg.Set reflection_linker, " (undocumented)";
+       "-rebuildtypes", Arg.Set rebuiltmode, " (undocumented)";
+       "-variantasarray", Arg.Set variantrepr_objarray, " (undocumented)";
+       "-recordasarray", Arg.Set recordrepr_objarray, " (undocumented)";
+       "-stringrepr", Arg.String (fun s -> stringrepr := (match s with "string" -> SRO_string
+							    | "strbuilder" -> SRO_strbuilder
+							    | "chararray" -> SRO_chararray
+							    | _ -> SRO_strbuilder (* PPPP raise error *) )), "<repr> is either string, strbuilder or chararray"; 
+       "-unverifiable", Arg.Set unverif, " Emit unverifiable CIL";
+       "-a", Arg.Set make_dll, "Make archive / dll";
        "-", Arg.String (process_file ppf),
             "<file>  Treat <file> as a file name (even if it starts with `-')"
       ] (process_file ppf) usage;
-    if !make_archive then begin
+    if !Clflags.rebuiltmode then
+      begin
+	Clflags.variantrepr_objarray:=true;
+	Clflags.recordrepr_objarray:=true
+      end;
+      
+
+(*    Il.initialize_assemblyref();    (* sert a rien ? *) *)
+(*    if !make_archive then  begin
       Optcompile.init_path();
       Asmlibrarian.create_archive (List.rev !objfiles)
                                   (extract_output !output_name)
@@ -187,9 +211,10 @@ let main () =
       Asmpackager.package_files ppf (List.rev !objfiles)
                                     (extract_output !output_name)
     end
-    else if not !compile_only && !objfiles <> [] then begin
+ else *)
+    if not !compile_only && !objfiles <> [] then begin
       Optcompile.init_path();
-      Asmlink.link ppf (List.rev !objfiles) (default_output !output_name)
+      Ilcompile.link (List.rev !objfiles)
     end;
     exit 0
   with x ->

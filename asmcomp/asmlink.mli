@@ -10,17 +10,16 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: asmlink.mli,v 1.10 2002/06/11 14:15:11 xleroy Exp $ *)
+(* $Id: asmlink.mli,v 1.4 2004/07/11 21:37:47 montela Exp $ *)
 
 (* Link a set of .cmx/.o files and produce an executable *)
 
 open Format
 
-val link: formatter -> string list -> string -> unit
-
+(*val link: formatter -> string list -> string -> unit*)
 val check_consistency: string -> Compilenv.unit_infos -> Digest.t -> unit
 val extract_crc_interfaces: unit -> (string * Digest.t) list
-val extract_crc_implementations: unit -> (string * Digest.t) list
+val extract_crc_implementations: unit -> (string * Il.typeref *Digest.t) list
 
 type error =
     File_not_found of string
@@ -31,7 +30,7 @@ type error =
   | Assembler_error of string
   | Linking_error
   | Multiple_definition of string * string * string
-
+  | Inconsistent_compilation_modes of string*Clflags.compmode*Clflags.compmode
 exception Error of error
 
 val report_error: formatter -> error -> unit

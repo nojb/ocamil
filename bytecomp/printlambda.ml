@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: printlambda.ml,v 1.46 2002/06/27 09:25:03 weis Exp $ *)
+(* $Id: printlambda.ml,v 1.3 2006/01/22 03:50:10 montela Exp $ *)
 
 open Format
 open Asttypes
@@ -90,6 +90,7 @@ let primitive ppf = function
   | Pmakeblock(tag, Immutable) -> fprintf ppf "makeblock %i" tag
   | Pmakeblock(tag, Mutable) -> fprintf ppf "makemutable %i" tag
   | Pfield n -> fprintf ppf "field %i" n
+  | Pfldtag (n,tag) -> fprintf ppf "fldtag (%i,t:%i)" n tag
   | Psetfield(n, ptr) ->
       let instr = if ptr then "setfield_ptr " else "setfield_imm " in
       fprintf ppf "%s%i" instr n
@@ -112,8 +113,8 @@ let primitive ppf = function
   | Plslint -> fprintf ppf "lsl"
   | Plsrint -> fprintf ppf "lsr"
   | Pasrint -> fprintf ppf "asr"
-  | Pintcomp(Ceq) -> fprintf ppf "=="
-  | Pintcomp(Cneq) -> fprintf ppf "!="
+  | Pintcomp(Ceq) -> fprintf ppf "(i)=="
+  | Pintcomp(Cneq) -> fprintf ppf "(i)!="
   | Pintcomp(Clt) -> fprintf ppf "<"
   | Pintcomp(Cle) -> fprintf ppf "<="
   | Pintcomp(Cgt) -> fprintf ppf ">"
@@ -171,6 +172,9 @@ let primitive ppf = function
   | Pbintcomp(bi, Cge) -> print_boxed_integer ">=" ppf bi
   | Pbigarrayref(n, kind, layout) -> print_bigarray "get" kind ppf layout
   | Pbigarrayset(n, kind, layout) -> print_bigarray "set" kind ppf layout
+  | Pil s -> fprintf ppf "IL:%s" s
+(*print_string "IL:" ; print_string s 
+*)
 
 let rec lam ppf = function
   | Lvar id ->

@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: trace.ml,v 1.20 2001/04/19 08:34:20 garrigue Exp $ *)
+(* $Id: trace.ml,v 1.1 2003/09/25 16:48:34 montela Exp $ *)
 
 (* The "trace" facility *)
 
@@ -52,7 +52,7 @@ let set_code_pointer cls ptr = Obj.set_field cls 0 ptr
    code of the function. *)
 
 let invoke_traced_function codeptr env arg =
-  Meta.invoke_traced_function codeptr env arg
+(*TEMPO  Meta.invoke_traced_function codeptr env arg*) Obj.repr ()
 
 let print_label ppf l = if l <> "" then fprintf ppf "%s:" l
 

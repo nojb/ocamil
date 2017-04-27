@@ -10,7 +10,7 @@
 (*                                                                     *)
 (***********************************************************************)
 
-(* $Id: topmain.mli,v 1.1 2002/04/24 08:02:51 xleroy Exp $ *)
+(* $Id: topmain.mli,v 1.1 2003/09/25 16:48:34 montela Exp $ *)
 
 (* Start the [ocaml] toplevel loop *)
 
